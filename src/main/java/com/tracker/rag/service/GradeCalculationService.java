@@ -1,9 +1,8 @@
 package com.tracker.rag.service;
 
-import com.tracker.rag.contract.CategoryGradeInput;
-import com.tracker.rag.contract.CourseGradeResult;
-import com.tracker.rag.contract.FinalExamRequirement;
-import com.tracker.rag.contract.GradeCalculationEngine;
+import com.tracker.rag.dto.CategoryGradeInput;
+import com.tracker.rag.dto.CourseGradeResult;
+import com.tracker.rag.dto.FinalExamRequirement;
 import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
@@ -15,13 +14,12 @@ import java.util.*;
  * Computes running weighted course grades and required scores on final assessments.
  */
 @Service
-public class GradeCalculationService implements GradeCalculationEngine {
+public class GradeCalculationService {
 
     private static final BigDecimal HUNDRED = new BigDecimal("100.00");
     private static final int CALC_SCALE = 6;
     private static final int DISPLAY_SCALE = 2;
 
-    @Override
     public CourseGradeResult calculateCourseGrade(List<CategoryGradeInput> categories) {
         if (categories == null || categories.isEmpty()) {
             return CourseGradeResult.unassessed();
@@ -34,7 +32,7 @@ public class GradeCalculationService implements GradeCalculationEngine {
         for (CategoryGradeInput category : categories) {
             List<BigDecimal> scores = category.scores();
             if (scores.isEmpty()) {
-                continue; // Unassessed category
+                continue;
             }
 
             int k = scores.size();
@@ -72,7 +70,6 @@ public class GradeCalculationService implements GradeCalculationEngine {
         return new CourseGradeResult(currentGrade, categoryAverages, isPassing, true);
     }
 
-    @Override
     public FinalExamRequirement calculateRequiredFinalScore(
             List<CategoryGradeInput> completedCategories,
             BigDecimal finalExamWeight,

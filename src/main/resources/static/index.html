@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Personal Tracker + Study RAG v3</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --bg-tertiary: #334155;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --accent-blue: #38bdf8;
+            --accent-purple: #c084fc;
+            --accent-green: #4ade80;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --border-color: #334155;
+            --card-radius: 12px;
+        }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 1rem 2rem;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            position: sticky;
+            top: 0;
+            z-index: 50;
+        }
+
+        .brand {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-size: 1.25rem;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .brand span {
+            background: linear-gradient(135deg, var(--accent-blue), var(--accent-purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        .domain-chips {
+            display: flex;
+            gap: 0.5rem;
+            background: var(--bg-primary);
+            padding: 0.25rem;
+            border-radius: 9999px;
+            border: 1px solid var(--border-color);
+        }
+
+        .domain-chip {
+            padding: 0.4rem 1rem;
+            border-radius: 9999px;
+            font-size: 0.875rem;
+            font-weight: 500;
+            cursor: pointer;
+            border: none;
+            background: transparent;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+            gap: 0.35rem;
+        }
+
+        .domain-chip.active {
+            background: var(--bg-secondary);
+            color: var(--text-primary);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+        }
+
+        .domain-chip.personal.active { color: var(--accent-rose); border: 1px solid rgba(251, 113, 133, 0.3); }
+        .domain-chip.academics.active { color: var(--accent-blue); border: 1px solid rgba(56, 189, 248, 0.3); }
+        .domain-chip.career.active { color: var(--accent-green); border: 1px solid rgba(74, 222, 128, 0.3); }
+
+        .quick-capture-bar {
+            background-color: var(--bg-secondary);
+            border-bottom: 1px solid var(--border-color);
+            padding: 0.75rem 2rem;
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+        }
+
+        .quick-capture-bar input {
+            flex: 1;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            padding: 0.6rem 1rem;
+            border-radius: 8px;
+            color: var(--text-primary);
+            font-size: 0.95rem;
+            outline: none;
+            transition: border-color 0.2s;
+        }
+
+        .quick-capture-bar input:focus {
+            border-color: var(--accent-blue);
+        }
+
+        .btn {
+            padding: 0.6rem 1.2rem;
+            border-radius: 8px;
+            font-weight: 600;
+            font-size: 0.875rem;
+            cursor: pointer;
+            border: none;
+            transition: opacity 0.2s;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+        }
+
+        .btn-primary { background: var(--accent-blue); color: #000; }
+        .btn-success { background: var(--accent-green); color: #000; }
+        .btn-danger { background: var(--accent-rose); color: #fff; }
+        .btn-secondary { background: var(--bg-tertiary); color: var(--text-primary); }
+        .btn:hover { opacity: 0.9; }
+
+        .container {
+            display: flex;
+            flex: 1;
+            padding: 1.5rem 2rem;
+            gap: 1.5rem;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+        }
+
+        .chat-sidebar {
+            width: 440px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            display: flex;
+            flex-direction: column;
+            height: calc(100vh - 170px);
+            position: sticky;
+            top: 130px;
+        }
+
+        .card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            padding: 1.25rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            padding-bottom: 0.75rem;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .card-title {
+            font-size: 1.1rem;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .grid-2 {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 1.25rem;
+        }
+
+        .task-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.6rem 0.75rem;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .task-item.done span {
+            text-decoration: line-through;
+            color: var(--text-secondary);
+        }
+
+        .badge {
+            font-size: 0.75rem;
+            font-weight: 600;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            text-transform: uppercase;
+        }
+
+        .badge-high { background: rgba(251, 113, 133, 0.2); color: var(--accent-rose); }
+        .badge-medium { background: rgba(251, 191, 36, 0.2); color: var(--accent-amber); }
+        .badge-low { background: rgba(56, 189, 248, 0.2); color: var(--accent-blue); }
+
+        .habit-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0.6rem 0.75rem;
+            background: var(--bg-primary);
+            border-radius: 8px;
+            margin-bottom: 0.5rem;
+            border: 1px solid var(--border-color);
+        }
+
+        .streak-pill {
+            background: rgba(251, 191, 36, 0.15);
+            color: var(--accent-amber);
+            font-weight: 700;
+            padding: 0.2rem 0.6rem;
+            border-radius: 9999px;
+            font-size: 0.85rem;
+        }
+
+        /* Chat Styles */
+        .chat-header {
+            padding: 1rem;
+            border-bottom: 1px solid var(--border-color);
+            font-weight: 600;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 1rem;
+            overflow-y: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 1rem;
+        }
+
+        .message {
+            max-width: 90%;
+            padding: 0.75rem 1rem;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+
+        .message-user {
+            background: var(--bg-tertiary);
+            align-self: flex-end;
+            color: var(--text-primary);
+        }
+
+        .message-ai {
+            background: var(--bg-primary);
+            align-self: flex-start;
+            border: 1px solid var(--border-color);
+            color: var(--text-primary);
+        }
+
+        .citation-chip {
+            display: inline-block;
+            background: rgba(56, 189, 248, 0.15);
+            color: var(--accent-blue);
+            font-size: 0.75rem;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            margin: 0.2rem 0.2rem 0.2rem 0;
+            font-family: 'JetBrains Mono', monospace;
+            cursor: pointer;
+        }
+
+        .chat-input-area {
+            padding: 1rem;
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            gap: 0.5rem;
+        }
+
+        .chat-input-area input {
+            flex: 1;
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            padding: 0.6rem 0.75rem;
+            border-radius: 8px;
+            color: var(--text-primary);
+            outline: none;
+        }
+
+        /* Confirmation Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(0, 0, 0, 0.75);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+        }
+
+        .modal-card {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: var(--card-radius);
+            width: 500px;
+            padding: 1.5rem;
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.5);
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+        }
+
+        .modal-body {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            padding: 1rem;
+            border-radius: 8px;
+            margin-bottom: 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+        }
+
+        .modal-actions {
+            display: flex;
+            justify-content: flex-end;
+            gap: 0.75rem;
+        }
+    </style>
+</head>
+<body>
+
+    <header>
+        <div class="brand">
+            <span>⚡ Study RAG</span>
+            <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: normal;">v3 Personal Tracker</span>
+        </div>
+        <div class="domain-chips">
+            <button class="domain-chip academics active" onclick="switchDomain('ACADEMICS')">🎓 Academics</button>
+            <button class="domain-chip personal" onclick="switchDomain('PERSONAL')">🔒 Personal</button>
+            <button class="domain-chip career" onclick="switchDomain('CAREER')">💼 Career</button>
+            <button class="domain-chip" onclick="switchDomain('ALL')">🌐 All (Non-Private)</button>
+        </div>
+    </header>
+
+    <div class="quick-capture-bar">
+        <span style="font-size: 0.85rem; color: var(--text-secondary); font-weight: 600;">QUICK CAPTURE:</span>
+        <input type="text" id="captureInput" placeholder="Natural language capture: 'submit midterm report by Friday 5pm for CS310' or 'daily workout'" onkeydown="if(event.key==='Enter') requestCapturePreview()">
+        <button class="btn btn-primary" onclick="requestCapturePreview()">Review Card</button>
+        <button class="btn btn-secondary" onclick="undoLastMutation()" title="Revert last change">↩ Undo</button>
+    </div>
+
+    <div class="container">
+        <div class="main-content">
+            <!-- Today View Section -->
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📝 Tasks & Deadlines</div>
+                        <button class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.3rem 0.6rem;" onclick="refreshDashboard()">Refresh</button>
+                    </div>
+                    <div id="taskList">
+                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Loading tasks...</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">🔥 Habit Streaks (Personal)</div>
+                        <span style="font-size: 0.8rem; color: var(--accent-rose);">Private & Local</span>
+                    </div>
+                    <div id="habitList">
+                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Switch to Personal domain to view habits</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Career & Academic Overview -->
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">💼 Career Pipeline</div>
+                    </div>
+                    <div id="careerList">
+                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Loading pipeline...</p>
+                    </div>
+                </div>
+
+                <div class="card">
+                    <div class="card-header">
+                        <div class="card-title">📚 Courses & Grades</div>
+                    </div>
+                    <div id="courseList">
+                        <p style="color: var(--text-secondary); font-size: 0.9rem;">Loading courses...</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Ingest Section -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-title">📄 Ingest Notes (PDF / Markdown)</div>
+                </div>
+                <div style="display: flex; gap: 1rem; align-items: center;">
+                    <input type="file" id="pdfFileInput" accept=".pdf" style="color: var(--text-secondary);">
+                    <button class="btn btn-primary" onclick="uploadPdf()">Upload & Ingest PDF</button>
+                    <span id="uploadStatus" style="font-size: 0.85rem; color: var(--accent-green);"></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Chat Sidebar -->
+        <div class="chat-sidebar">
+            <div class="chat-header">
+                <span>💬 Ask Your Notes</span>
+                <span id="activeDomainLabel" style="font-size: 0.75rem; color: var(--accent-blue); font-weight: 600;">ACADEMICS</span>
+            </div>
+            <div class="chat-messages" id="chatMessages">
+                <div class="message message-ai">
+                    👋 Ask questions about your uploaded lecture slides, notes, or job descriptions. All queries are strictly scoped to the active domain.
+                </div>
+            </div>
+            <div class="chat-input-area">
+                <input type="text" id="chatInput" placeholder="Ask your notes..." onkeydown="if(event.key==='Enter') sendChatMessage()">
+                <button class="btn btn-primary" onclick="sendChatMessage()">Ask</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Confirmation Modal Card -->
+    <div class="modal-overlay" id="confirmModal" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>📋 Confirmation Card</h3>
+                <span style="font-size: 0.8rem; color: var(--accent-amber);">15m Expiry Guard</span>
+            </div>
+            <p id="cardSummary" style="margin-bottom: 0.75rem; font-size: 0.95rem; font-weight: 500;"></p>
+            <div class="modal-body" id="cardPayload"></div>
+            <div class="modal-actions">
+                <button class="btn btn-secondary" onclick="closeConfirmModal()">Discard</button>
+                <button class="btn btn-success" id="confirmCommitBtn" onclick="commitCard()">Approve & Commit</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentDomain = 'ACADEMICS';
+        let currentCardToken = null;
+
+        function switchDomain(domain) {
+            currentDomain = domain;
+            document.querySelectorAll('.domain-chip').forEach(btn => btn.classList.remove('active'));
+            if (domain === 'ACADEMICS') document.querySelector('.domain-chip.academics').classList.add('active');
+            else if (domain === 'PERSONAL') document.querySelector('.domain-chip.personal').classList.add('active');
+            else if (domain === 'CAREER') document.querySelector('.domain-chip.career').classList.add('active');
+            else document.querySelectorAll('.domain-chip')[3].classList.add('active');
+
+            document.getElementById('activeDomainLabel').innerText = domain;
+            refreshDashboard();
+        }
+
+        async function refreshDashboard() {
+            try {
+                let domainsParam = currentDomain === 'ALL' ? 'ACADEMICS,CAREER' : currentDomain;
+                const res = await fetch(`/api/tracker/today?domains=${domainsParam}`);
+                if (!res.ok) return;
+                const data = await res.json();
+
+                // Render tasks
+                const taskDiv = document.getElementById('taskList');
+                if (!data.tasks || data.tasks.length === 0) {
+                    taskDiv.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.9rem;">No pending tasks in this domain.</p>';
+                } else {
+                    taskDiv.innerHTML = data.tasks.map(t => `
+                        <div class="task-item ${t.status === 'DONE' ? 'done' : ''}">
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <input type="checkbox" ${t.status === 'DONE' ? 'checked' : ''} onchange="toggleTask('${t.id}')">
+                                <span>${t.title}</span>
+                            </div>
+                            <span class="badge badge-${t.priority ? t.priority.toLowerCase() : 'medium'}">${t.priority || 'NORMAL'}</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Render habits
+                const habitDiv = document.getElementById('habitList');
+                if (!data.habits || data.habits.length === 0) {
+                    habitDiv.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.9rem;">No habits logged yet (switch to Personal domain).</p>';
+                } else {
+                    habitDiv.innerHTML = data.habits.map(h => `
+                        <div class="habit-row">
+                            <span>${h.habit.name}</span>
+                            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                                <span class="streak-pill">🔥 ${h.streak ? h.streak.currentStreak : 0}d</span>
+                                <button class="btn btn-secondary" style="font-size: 0.75rem; padding: 0.2rem 0.5rem;" onclick="logHabit('${h.habit.id}')">+ Log</button>
+                            </div>
+                        </div>
+                    `).join('');
+                }
+
+                // Render career
+                const careerDiv = document.getElementById('careerList');
+                if (!data.applications || data.applications.length === 0) {
+                    careerDiv.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.9rem;">No active applications.</p>';
+                } else {
+                    careerDiv.innerHTML = data.applications.map(a => `
+                        <div class="task-item">
+                            <div><strong>${a.company}</strong> — ${a.position}</div>
+                            <span class="badge badge-low">${a.status}</span>
+                        </div>
+                    `).join('');
+                }
+
+                // Render courses
+                const courseDiv = document.getElementById('courseList');
+                if (!data.courses || data.courses.length === 0) {
+                    courseDiv.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.9rem;">No registered courses.</p>';
+                } else {
+                    courseDiv.innerHTML = data.courses.map(c => `
+                        <div class="task-item">
+                            <div><strong>${c.code}</strong> ${c.name}</div>
+                            <span class="badge badge-high">${c.targetGrade || 'A'}</span>
+                        </div>
+                    `).join('');
+                }
+            } catch (err) {
+                console.error("Dashboard refresh error:", err);
+            }
+        }
+
+        async function toggleTask(id) {
+            await fetch(`/api/tracker/tasks/${id}/toggle`, { method: 'POST' });
+            refreshDashboard();
+        }
+
+        async function logHabit(id) {
+            await fetch(`/api/tracker/habits/${id}/log`, { method: 'POST' });
+            refreshDashboard();
+        }
+
+        async function requestCapturePreview() {
+            const input = document.getElementById('captureInput').value.trim();
+            if (!input) return;
+            const domain = currentDomain === 'ALL' ? 'ACADEMICS' : currentDomain;
+
+            try {
+                const res = await fetch('/api/capture/preview', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ input, domain })
+                });
+                if (!res.ok) {
+                    alert('Capture error: ' + await res.text());
+                    return;
+                }
+                const card = await res.json();
+                currentCardToken = card.confirmationToken;
+                document.getElementById('cardSummary').innerText = card.summary;
+                document.getElementById('cardPayload').innerText = JSON.stringify(card.proposedPayload, null, 2);
+                document.getElementById('confirmModal').style.display = 'flex';
+            } catch (err) {
+                alert('Error creating preview card: ' + err.message);
+            }
+        }
+
+        async function commitCard() {
+            if (!currentCardToken) return;
+            try {
+                const res = await fetch(`/api/capture/commit/${currentCardToken}`, { method: 'POST' });
+                if (res.ok) {
+                    closeConfirmModal();
+                    document.getElementById('captureInput').value = '';
+                    refreshDashboard();
+                } else {
+                    alert('Commit failed: ' + await res.text());
+                }
+            } catch (err) {
+                alert('Commit failed: ' + err.message);
+            }
+        }
+
+        function closeConfirmModal() {
+            document.getElementById('confirmModal').style.display = 'none';
+            if (currentCardToken) {
+                fetch(`/api/capture/cancel/${currentCardToken}`, { method: 'DELETE' });
+                currentCardToken = null;
+            }
+        }
+
+        async function undoLastMutation() {
+            const domain = currentDomain === 'ALL' ? 'ACADEMICS' : currentDomain;
+            try {
+                const res = await fetch(`/api/capture/rollback/last?domain=${domain}`, { method: 'POST' });
+                if (res.ok) {
+                    alert('Reverted last mutation successfully!');
+                    refreshDashboard();
+                } else {
+                    alert('Undo: ' + await res.text());
+                }
+            } catch (err) {
+                alert('Undo error: ' + err.message);
+            }
+        }
+
+        async function uploadPdf() {
+            const fileInput = document.getElementById('pdfFileInput');
+            if (!fileInput.files || fileInput.files.length === 0) {
+                alert('Please select a PDF file');
+                return;
+            }
+            const file = fileInput.files[0];
+            const domain = currentDomain === 'ALL' ? 'ACADEMICS' : currentDomain;
+
+            const formData = new FormData();
+            formData.append('file', file);
+            formData.append('domain', domain);
+
+            document.getElementById('uploadStatus').innerText = 'Ingesting & embedding...';
+            try {
+                const res = await fetch('/api/ingest/upload', {
+                    method: 'POST',
+                    body: formData
+                });
+                const data = await res.json();
+                document.getElementById('uploadStatus').innerText = `Ingested: ${data.chunksCreated} chunks (${data.status})`;
+            } catch (err) {
+                document.getElementById('uploadStatus').innerText = 'Upload failed: ' + err.message;
+            }
+        }
+
+        async function sendChatMessage() {
+            const input = document.getElementById('chatInput');
+            const query = input.value.trim();
+            if (!query) return;
+
+            const messagesDiv = document.getElementById('chatMessages');
+            messagesDiv.innerHTML += `<div class="message message-user">${query}</div>`;
+            input.value = '';
+
+            const aiMessageDiv = document.createElement('div');
+            aiMessageDiv.className = 'message message-ai';
+            aiMessageDiv.innerHTML = '<span style="color: var(--text-secondary);">Searching notes...</span>';
+            messagesDiv.appendChild(aiMessageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+
+            const domain = currentDomain === 'ALL' ? 'ACADEMICS' : currentDomain;
+            const eventSource = new EventSource(`/api/chat/stream?query=${encodeURIComponent(query)}&domain=${domain}`);
+            let firstChunk = true;
+
+            eventSource.addEventListener('citations', (e) => {
+                const citations = JSON.parse(e.data);
+                const chips = citations.map((c, i) => 
+                    `<span class="citation-chip" title="${c.content}">[S${i+1}] ${c.documentId.split('/').pop()} p.${c.pageNumber||1}</span>`
+                ).join('');
+                aiMessageDiv.innerHTML = `<div style="margin-bottom: 0.4rem;">${chips}</div><div></div>`;
+            });
+
+            eventSource.addEventListener('chunk', (e) => {
+                const textContainer = aiMessageDiv.querySelector('div:last-child') || aiMessageDiv;
+                if (firstChunk) {
+                    textContainer.innerText = '';
+                    firstChunk = false;
+                }
+                textContainer.innerText += e.data;
+                messagesDiv.scrollTop = messagesDiv.scrollHeight;
+            });
+
+            eventSource.addEventListener('done', () => {
+                eventSource.close();
+            });
+
+            eventSource.addEventListener('error', () => {
+                eventSource.close();
+            });
+        }
+
+        // Initialize on page load
+        refreshDashboard();
+    </script>
+</body>
+</html>
