@@ -20,6 +20,18 @@ public class JacksonEventLogConfig {
         mapper.disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
         mapper.setSerializationInclusion(JsonInclude.Include.NON_NULL);
+        mapper.addMixIn(com.tracker.rag.model.Course.class, CourseJson.class);
+        mapper.addMixIn(com.tracker.rag.model.Habit.class, HabitJson.class);
+        mapper.addMixIn(com.tracker.rag.model.Task.class, TaskJson.class);
+        mapper.addMixIn(com.tracker.rag.model.AssessmentCategory.class, CategoryJson.class);
         return mapper;
     }
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"categories", "assessments", "hibernateLazyInitializer", "handler"})
+    private abstract static class CourseJson {}
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"logs", "zoneId", "hibernateLazyInitializer", "handler"})
+    private abstract static class HabitJson {}
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"subtasks", "parentTask", "hibernateLazyInitializer", "handler"})
+    private abstract static class TaskJson {}
+    @com.fasterxml.jackson.annotation.JsonIgnoreProperties({"assessments", "hibernateLazyInitializer", "handler"})
+    private abstract static class CategoryJson {}
 }

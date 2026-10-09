@@ -1,6 +1,7 @@
 package com.tracker.rag.service;
 
 import com.tracker.rag.domain.DomainScope;
+import com.tracker.rag.service.ai.AiClient;
 import com.tracker.rag.dto.Citation;
 import com.tracker.rag.dto.HybridSearchResult;
 import com.tracker.rag.repository.vector.ScoredChunk;
@@ -26,13 +27,15 @@ public class HybridRetrieverService {
     private static final int RRF_K = 60;
 
     private final VectorStore vectorStore;
-    private final OllamaClientService ollamaClientService;
+    private final AiClient ollamaClientService;
     private final InvertedIndexService invertedIndexService;
+    @Autowired(required = false)
+    private com.tracker.rag.repository.DocumentRecordRepository documents;
 
     @Autowired
     public HybridRetrieverService(
             VectorStore vectorStore,
-            OllamaClientService ollamaClientService,
+            AiClient ollamaClientService,
             @Autowired(required = false) InvertedIndexService invertedIndexService
     ) {
         this.vectorStore = vectorStore;
@@ -40,7 +43,7 @@ public class HybridRetrieverService {
         this.invertedIndexService = invertedIndexService;
     }
 
-    public HybridRetrieverService(VectorStore vectorStore, OllamaClientService ollamaClientService) {
+    public HybridRetrieverService(VectorStore vectorStore, AiClient ollamaClientService) {
         this(vectorStore, ollamaClientService, null);
     }
 
@@ -51,9 +54,15 @@ public class HybridRetrieverService {
         }
         int k = Math.max(1, topK);
         int candidateLimit = Math.max(20, k * 3);
+        if (documents != null && !"legacy".equals(ollamaClientService.embeddingSpace()) &&
+                documents.findByDomain(domain).stream().anyMatch(doc -> doc.getChunkCount() > 0 &&
+                        !ollamaClientService.embeddingSpace().equals(doc.getEmbeddingModelId()))) {
+            throw new com.tracker.rag.service.ai.AiServiceException(409,
+                    "The embedding model changed. Upload this area's indexed documents again before asking questions.");
+        }
 
-        // 1. Dense Vector Search via Ollama embedding (domain-scoped LRU cache)
-        float[] queryVec = ollamaClientService.generateEmbedding(query, domain);
+        // 1. Dense Vector Search via provider query embedding (domain-scoped cache)
+        float[] queryVec = ollamaClientService.generateQueryEmbedding(query, domain);
         List<ScoredChunk> denseResults = 
                 vectorStore.similaritySearch(queryVec, domain, candidateLimit);
 

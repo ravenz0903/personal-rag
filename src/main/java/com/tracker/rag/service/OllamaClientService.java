@@ -25,8 +25,8 @@ import java.util.function.Consumer;
  * Enforces explicit num_ctx: 8192 per hardware specification.
  * Includes graceful offline fallback for resilient local operation.
  */
-@Service
-public class OllamaClientService {
+@Deprecated
+public class OllamaClientService implements com.tracker.rag.service.ai.AiClient {
 
     private static final Logger log = LoggerFactory.getLogger(OllamaClientService.class);
     private static final int EMBEDDING_DIM = 768;

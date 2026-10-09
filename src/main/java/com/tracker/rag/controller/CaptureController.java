@@ -14,7 +14,7 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/capture")
-@CrossOrigin(origins = "*")
+
 public class CaptureController {
 
     private final CaptureService captureService;
@@ -67,4 +67,9 @@ public class CaptureController {
     }
 
     public record PreviewRequest(String input, String domain) {}
+    @PostMapping("/structured")
+    public ResponseEntity<ConfirmationCard> structured(@RequestBody StructuredRequest request) {
+        return ResponseEntity.ok(captureService.createStructuredPreview(DomainScope.parse(request.domain()), request.entityType(), request.payload()));
+    }
+    public record StructuredRequest(String domain, String entityType, Map<String, Object> payload) {}
 }

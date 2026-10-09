@@ -58,6 +58,12 @@ public class Task {
     @Column(name = "due_date")
     private Instant dueDate;
 
+    @Column(name = "remind_at")
+    private Instant remindAt;
+
+    public Instant getRemindAt() { return remindAt; }
+    public void setRemindAt(Instant remindAt) { this.remindAt = remindAt; }
+
     @NotNull
     @Enumerated(EnumType.STRING)
     @Column(name = "priority", nullable = false, length = 16)

@@ -12,6 +12,7 @@ import java.util.UUID;
 
 @Repository
 public interface DocumentRecordRepository extends JpaRepository<DocumentRecord, UUID> {
+    java.util.Optional<DocumentRecord> findByFilePathAndDomain(String filePath, DomainScope domain);
 
     List<DocumentRecord> findByDomain(DomainScope domain);
 

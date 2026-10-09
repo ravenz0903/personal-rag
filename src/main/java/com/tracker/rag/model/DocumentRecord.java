@@ -48,6 +48,17 @@ public class DocumentRecord {
     @Column(name = "file_path", nullable = false, length = 1024)
     private String filePath;
 
+    @Column(name = "storage_path", length = 1024)
+    private String storagePath;
+    @Column(name = "embedding_model_id", length = 128)
+    private String embeddingModelId;
+
+    public String getEmbeddingModelId() { return embeddingModelId; }
+    public void setEmbeddingModelId(String value) { embeddingModelId = value; }
+
+    public String getStoragePath() { return storagePath; }
+    public void setStoragePath(String storagePath) { this.storagePath = storagePath; }
+
     @NotBlank
     @Size(min = 1, max = 128)
     @Column(name = "content_type", nullable = false, length = 128)

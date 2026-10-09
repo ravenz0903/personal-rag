@@ -17,7 +17,7 @@ import java.util.*;
 
 @RestController
 @RequestMapping("/api/tracker")
-@CrossOrigin(origins = "*")
+
 public class TrackerController {
 
     private final TrackerService trackerService;
@@ -71,7 +71,7 @@ public class TrackerController {
             @PathVariable UUID id,
             @RequestParam(required = false) String date
     ) {
-        LocalDate logDate = date != null ? LocalDate.parse(date) : LocalDate.now();
+        LocalDate logDate = date != null ? LocalDate.parse(date) : null;
         return ResponseEntity.ok(trackerService.logHabit(id, logDate));
     }
 

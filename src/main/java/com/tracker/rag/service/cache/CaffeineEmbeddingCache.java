@@ -26,7 +26,8 @@ public class CaffeineEmbeddingCache implements EmbeddingCache {
         this(DEFAULT_MAX_CAPACITY);
     }
 
-    public CaffeineEmbeddingCache(int maxCapacity) {
+    @org.springframework.beans.factory.annotation.Autowired
+    public CaffeineEmbeddingCache(@org.springframework.beans.factory.annotation.Value("${tracker.cache.capacity:10000}") int maxCapacity) {
         this.maxCapacity = maxCapacity;
         this.cache = Caffeine.newBuilder()
                 .maximumSize(maxCapacity)

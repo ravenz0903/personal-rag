@@ -115,7 +115,7 @@ public class ProductionEndpointsIntegrationTest {
                         .contentType(MediaType.APPLICATION_JSON)
                         .content(objectMapper.writeValueAsString(req)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.filePath", is("docs/syllabus.md")))
+                .andExpect(jsonPath("$.filePath", is("syllabus.md")))
                 .andExpect(jsonPath("$.chunksCreated", greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.status", is("CREATED")));
 

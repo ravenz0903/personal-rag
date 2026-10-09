@@ -1,0 +1,9 @@
+.git
+.env
+.env.*
+target
+data
+frontend
+*.log
+.gemini
+.agent

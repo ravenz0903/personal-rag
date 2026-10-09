@@ -1,6 +1,7 @@
 package com.tracker.rag.service;
 
 import com.tracker.rag.repository.DocumentRecordRepository;
+import com.tracker.rag.service.ai.AiClient;
 import com.tracker.rag.repository.vector.VectorStore;
 import com.tracker.rag.service.retrieval.InvertedIndexService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,7 +22,7 @@ public class DocumentIngestionService extends com.tracker.rag.service.ingestion.
     public DocumentIngestionService(
             VectorStore vectorStore,
             DocumentRecordRepository documentRecordRepository,
-            OllamaClientService ollamaClientService,
+            AiClient ollamaClientService,
             @Autowired(required = false) InvertedIndexService invertedIndexService
     ) {
         super(vectorStore, documentRecordRepository, ollamaClientService, invertedIndexService);
@@ -30,7 +31,7 @@ public class DocumentIngestionService extends com.tracker.rag.service.ingestion.
     public DocumentIngestionService(
             VectorStore vectorStore,
             DocumentRecordRepository documentRecordRepository,
-            OllamaClientService ollamaClientService
+            AiClient ollamaClientService
     ) {
         super(vectorStore, documentRecordRepository, ollamaClientService, null);
     }

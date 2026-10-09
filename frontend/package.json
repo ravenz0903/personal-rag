@@ -1,0 +1,9 @@
+{
+  "name": "folio-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": { "dev": "vite --host 127.0.0.1", "build": "vite build", "test": "node --test src/calendar.test.js", "preview": "vite preview --host 127.0.0.1" },
+  "dependencies": { "@supabase/supabase-js": "2.117.3", "lucide-react": "1.54.0", "react": "19.3.0", "react-dom": "19.3.0" },
+  "devDependencies": { "vite": "8.3.4" }
+}

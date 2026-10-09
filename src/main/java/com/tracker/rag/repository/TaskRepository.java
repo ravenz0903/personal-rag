@@ -19,6 +19,10 @@ import java.util.UUID;
 @Repository
 public interface TaskRepository extends JpaRepository<Task, UUID>, JpaSpecificationExecutor<Task> {
 
+    @org.springframework.data.jpa.repository.Lock(jakarta.persistence.LockModeType.PESSIMISTIC_WRITE)
+    @Query("select t from Task t where t.id = :id and t.domain = :domain")
+    Optional<Task> lockForEdit(@Param("id") UUID id, @Param("domain") DomainScope domain);
+
     List<Task> findByDomain(DomainScope domain);
 
     List<Task> findByDomainIn(Collection<DomainScope> domains);

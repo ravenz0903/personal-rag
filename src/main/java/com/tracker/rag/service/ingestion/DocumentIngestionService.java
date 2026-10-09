@@ -8,7 +8,7 @@ import com.tracker.rag.model.DocumentRecord;
 import com.tracker.rag.repository.DocumentRecordRepository;
 import com.tracker.rag.repository.vector.VectorChunk;
 import com.tracker.rag.repository.vector.VectorStore;
-import com.tracker.rag.service.OllamaClientService;
+import com.tracker.rag.service.ai.AiClient;
 import com.tracker.rag.service.retrieval.InvertedIndexService;
 import jakarta.annotation.PreDestroy;
 import org.apache.pdfbox.Loader;
@@ -41,10 +41,14 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
 
     protected final VectorStore vectorStore;
     protected final DocumentRecordRepository documentRecordRepository;
-    protected final OllamaClientService ollamaClientService;
+    protected final AiClient ollamaClientService;
     protected final InvertedIndexService invertedIndexService;
     protected final Map<String, String> documentHashes = new ConcurrentHashMap<>();
     protected final Map<String, List<VectorChunk>> documentChunks = new ConcurrentHashMap<>();
+    @Autowired(required = false)
+    protected com.tracker.rag.service.storage.DocumentStorageService originalStorage;
+    @Autowired(required = false)
+    protected org.springframework.transaction.PlatformTransactionManager transactions;
 
     private final ExecutorService asyncIngestionExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -52,7 +56,7 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
     public DocumentIngestionService(
             VectorStore vectorStore,
             DocumentRecordRepository documentRecordRepository,
-            OllamaClientService ollamaClientService,
+            AiClient ollamaClientService,
             @Autowired(required = false) InvertedIndexService invertedIndexService
     ) {
         this.vectorStore = vectorStore;
@@ -64,7 +68,7 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
     public DocumentIngestionService(
             VectorStore vectorStore,
             DocumentRecordRepository documentRecordRepository,
-            OllamaClientService ollamaClientService
+            AiClient ollamaClientService
     ) {
         this(vectorStore, documentRecordRepository, ollamaClientService, null);
     }
@@ -78,6 +82,7 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
     }
 
     @Override
+    @Transactional
     public IngestResult ingestPdfParallel(InputStream pdfStream, String fileName, DomainScope domain) {
         DomainScope.validateScope(domain);
         if (pdfStream == null) {
@@ -92,6 +97,7 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
     }
 
     @Override
+    @Transactional
     public IngestResult ingestMarkdownParallel(String content, String fileName, DomainScope domain) {
         return ingestMarkdown(fileName, domain, content);
     }
@@ -105,7 +111,9 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         try {
             byte[] bytes = pdfStream.readAllBytes();
             return CompletableFuture.supplyAsync(
-                    () -> ingestPdf(fileName, domain, bytes),
+                    () -> transactions == null ? ingestPdf(fileName, domain, bytes) :
+                            new org.springframework.transaction.support.TransactionTemplate(transactions)
+                                    .execute(status -> ingestPdf(fileName, domain, bytes)),
                     asyncIngestionExecutor
             );
         } catch (IOException e) {
@@ -123,15 +131,22 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         String fileHash = computeSha256(pdfBytes);
         String docKey = filePath + ":" + domain;
 
-        if (fileHash.equals(documentHashes.get(docKey))) {
+        if (domain == DomainScope.PERSONAL && originalStorage != null) {
+            return storePrivateDocument(filePath, domain, pdfBytes, "application/pdf", fileHash);
+        }
+
+        if (fileHash.equals(documentHashes.get(docKey)) || (documentRecordRepository != null && documentRecordRepository.findByFilePathAndDomain(filePath, domain).map(doc -> fileHash.equals(doc.getContentHash()) && ollamaClientService.embeddingSpace().equals(doc.getEmbeddingModelId())).orElse(false))) {
             return IngestResult.skipped(filePath, fileHash);
         }
 
         boolean isUpdate = documentHashes.containsKey(docKey) || 
-                (documentRecordRepository != null && documentRecordRepository.findByFilePath(filePath).isPresent());
+                (documentRecordRepository != null && documentRecordRepository.findByFilePathAndDomain(filePath, domain).isPresent());
 
         // Phase 1: Sequential in-memory text extraction into intermediate DTOs
         List<PageRawText> rawPages = extractPdfPages(filePath, pdfBytes);
+        rawPages = rawPages.stream().flatMap(page -> splitText(page.text()).stream()
+                .map(text -> new PageRawText(page.pageNumber(), text))).toList();
+        if (originalStorage != null && rawPages.size() > 16) throw new IllegalArgumentException("For the free AI tier, upload up to 16 text sections at a time. Split this document into smaller files.");
         if (rawPages.isEmpty()) {
             throw new EmptyDocumentException("Zero extractable text found in PDF: " + filePath);
         }
@@ -182,27 +197,23 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         }
 
         // Phase 3: Batch persist chunks into VectorStore and InvertedIndexService (deferred deletion ensures atomicity)
+        String storagePath = originalStorage == null ? null : originalStorage.save(pdfBytes, domain.name(), extractFilename(filePath), "application/pdf");
         if (isUpdate) {
-            vectorStore.deleteByDocumentId(filePath);
-            documentChunks.remove(docKey);
-            if (invertedIndexService != null) {
-                invertedIndexService.removeDocument(filePath, domain);
-            }
+            vectorStore.deleteByDocumentId(filePath, domain);
         }
 
         vectorStore.saveAll(newChunks);
-        documentHashes.put(docKey, fileHash);
-        documentChunks.put(docKey, newChunks);
-        if (invertedIndexService != null) {
-            invertedIndexService.indexChunks(newChunks);
-        }
+        publishChunks(docKey, filePath, domain, fileHash, newChunks, isUpdate);
 
         if (documentRecordRepository != null) {
             String fileName = extractFilename(filePath);
-            DocumentRecord doc = documentRecordRepository.findByFilePath(filePath)
+            DocumentRecord doc = documentRecordRepository.findByFilePathAndDomain(filePath, domain)
                     .orElse(new DocumentRecord(domain, fileName, filePath, "application/pdf", fileHash, pdfBytes.length));
             doc.setContentHash(fileHash);
+            doc.setEmbeddingModelId(ollamaClientService.embeddingSpace());
+            doc.setStoragePath(storagePath);
             doc.setChunkCount(newChunks.size());
+            doc.setFileSize(pdfBytes.length);
             doc.setUpdatedAt(Instant.now());
             documentRecordRepository.save(doc);
         }
@@ -280,15 +291,22 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         String fileHash = computeSha256(bytes);
         String docKey = filePath + ":" + domain;
 
-        if (fileHash.equals(documentHashes.get(docKey))) {
+        if (domain == DomainScope.PERSONAL && originalStorage != null) {
+            return storePrivateDocument(filePath, domain, bytes, "text/markdown", fileHash);
+        }
+
+        if (fileHash.equals(documentHashes.get(docKey)) || (documentRecordRepository != null && documentRecordRepository.findByFilePathAndDomain(filePath, domain).map(doc -> fileHash.equals(doc.getContentHash()) && ollamaClientService.embeddingSpace().equals(doc.getEmbeddingModelId())).orElse(false))) {
             return IngestResult.skipped(filePath, fileHash);
         }
 
         boolean isUpdate = documentHashes.containsKey(docKey) ||
-                (documentRecordRepository != null && documentRecordRepository.findByFilePath(filePath).isPresent());
+                (documentRecordRepository != null && documentRecordRepository.findByFilePathAndDomain(filePath, domain).isPresent());
 
         // Phase 1: Sequential heading hierarchy parsing into intermediate section records
         List<MarkdownSectionRaw> rawSections = parseMarkdownSections(filePath, markdownContent);
+        rawSections = rawSections.stream().flatMap(section -> splitText(section.text()).stream()
+                .map(text -> new MarkdownSectionRaw(section.index(), section.headingPath(), text))).toList();
+        if (originalStorage != null && rawSections.size() > 16) throw new IllegalArgumentException("For the free AI tier, upload up to 16 text sections at a time. Split this document into smaller files.");
         if (rawSections.isEmpty()) {
             throw new EmptyDocumentException("No content chunks parsed from Markdown: " + filePath);
         }
@@ -339,27 +357,23 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         }
 
         // Phase 3: Batch persist chunks into VectorStore and InvertedIndexService (deferred deletion ensures atomicity)
+        String storagePath = originalStorage == null ? null : originalStorage.save(bytes, domain.name(), extractFilename(filePath), "text/markdown");
         if (isUpdate) {
-            vectorStore.deleteByDocumentId(filePath);
-            documentChunks.remove(docKey);
-            if (invertedIndexService != null) {
-                invertedIndexService.removeDocument(filePath, domain);
-            }
+            vectorStore.deleteByDocumentId(filePath, domain);
         }
 
         vectorStore.saveAll(newChunks);
-        documentHashes.put(docKey, fileHash);
-        documentChunks.put(docKey, newChunks);
-        if (invertedIndexService != null) {
-            invertedIndexService.indexChunks(newChunks);
-        }
+        publishChunks(docKey, filePath, domain, fileHash, newChunks, isUpdate);
 
         if (documentRecordRepository != null) {
             String fileName = extractFilename(filePath);
-            DocumentRecord doc = documentRecordRepository.findByFilePath(filePath)
+            DocumentRecord doc = documentRecordRepository.findByFilePathAndDomain(filePath, domain)
                     .orElse(new DocumentRecord(domain, fileName, filePath, "text/markdown", fileHash, bytes.length));
             doc.setContentHash(fileHash);
+            doc.setEmbeddingModelId(ollamaClientService.embeddingSpace());
+            doc.setStoragePath(storagePath);
             doc.setChunkCount(newChunks.size());
+            doc.setFileSize(bytes.length);
             doc.setUpdatedAt(Instant.now());
             documentRecordRepository.save(doc);
         }
@@ -448,6 +462,42 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
 
     public List<VectorChunk> getStoredChunks(String filePath, DomainScope domain) {
         return documentChunks.getOrDefault(filePath + ":" + domain, Collections.emptyList());
+    }
+
+    private List<String> splitText(String text) {
+        List<String> parts = new ArrayList<>();
+        for (int start = 0; start < text.length(); start += 5600) {
+            parts.add(text.substring(start, Math.min(text.length(), start + 6000)));
+            if (start + 6000 >= text.length()) break;
+        }
+        return parts;
+    }
+
+    private void publishChunks(String key, String path, DomainScope domain, String hash, List<VectorChunk> chunks, boolean update) {
+        Runnable publish = () -> {
+            documentHashes.put(key, hash);
+            documentChunks.put(key, chunks);
+            if (invertedIndexService != null) {
+                if (update) invertedIndexService.removeDocument(path, domain);
+                invertedIndexService.indexChunks(chunks);
+            }
+        };
+        if (org.springframework.transaction.support.TransactionSynchronizationManager.isSynchronizationActive()) {
+            org.springframework.transaction.support.TransactionSynchronizationManager.registerSynchronization(
+                new org.springframework.transaction.support.TransactionSynchronization() {
+                    @Override public void afterCommit() { publish.run(); }
+                });
+        } else publish.run();
+    }
+
+    private IngestResult storePrivateDocument(String path, DomainScope domain, byte[] bytes, String type, String hash) {
+        Optional<DocumentRecord> existing = documentRecordRepository.findByFilePathAndDomain(path, domain);
+        if (existing.isPresent() && hash.equals(existing.get().getContentHash())) return IngestResult.skipped(path, hash);
+        String storagePath = originalStorage.save(bytes, domain.name(), extractFilename(path), type);
+        DocumentRecord record = existing.orElseGet(() -> new DocumentRecord(domain, extractFilename(path), path, type, hash, bytes.length));
+        record.setContentHash(hash); record.setStoragePath(storagePath); record.setChunkCount(0); record.setUpdatedAt(Instant.now());
+        documentRecordRepository.save(record);
+        return existing.isPresent() ? IngestResult.updated(path, 0, hash) : IngestResult.created(path, 0, hash);
     }
 
     public record HeadingEntry(int level, String title) {}

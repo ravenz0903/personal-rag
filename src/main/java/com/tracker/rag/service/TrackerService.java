@@ -19,6 +19,7 @@ import java.util.*;
  * Provides unified queries for the Today Dashboard across Academics, Personal, and Career.
  */
 @Service
+@Transactional(readOnly = true)
 public class TrackerService {
 
     private final TaskRepository taskRepository;
@@ -75,6 +76,14 @@ public class TrackerService {
                 .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
         Task before = new Task(task.getDomain(), task.getTitle(), task.getPriority(), task.getDueDate());
         before.setStatus(task.getStatus());
+        before.setId(task.getId());
+        before.setCreatedAt(task.getCreatedAt());
+        before.setUpdatedAt(task.getUpdatedAt());
+        before.setDescription(task.getDescription());
+        before.setRemindAt(task.getRemindAt());
+        before.setCompletedAt(task.getCompletedAt());
+        before.setCourse(task.getCourse());
+        before.setCareerApplication(task.getCareerApplication());
 
         if (task.getStatus() == TaskStatus.COMPLETED) {
             task.setStatus(TaskStatus.PENDING);
@@ -96,7 +105,8 @@ public class TrackerService {
             List<LocalDate> completionDates = logs.stream()
                     .map(HabitLog::getLogDate)
                     .toList();
-            StreakResult streak = habitStreakService.computeStreak(completionDates, LocalDate.now(zoneId), zoneId);
+            StreakResult streak = habitStreakService.computeStreakWithFrequency(completionDates, LocalDate.now(habit.getZoneId()), habit.getZoneId(),
+                    habit.getFrequency(), habit.getCustomDaysMask() == null ? 127 : habit.getCustomDaysMask());
             result.add(new HabitWithStreak(habit, streak));
         }
         return result;
@@ -106,9 +116,14 @@ public class TrackerService {
     public HabitLog logHabit(UUID habitId, LocalDate date) {
         Habit habit = habitRepository.findById(habitId)
                 .orElseThrow(() -> new IllegalArgumentException("Habit not found: " + habitId));
-        LocalDate logDate = date != null ? date : LocalDate.now();
+        LocalDate logDate = date != null ? date : LocalDate.now(habit.getZoneId());
+        Optional<HabitLog> existing = habitLogRepository.findByHabitIdAndLogDate(habitId, logDate);
+        if (existing.isPresent()) return existing.get();
         HabitLog log = new HabitLog(habit, logDate, Instant.now(), 1, null);
-        return habitLogRepository.save(log);
+        HabitLog saved = habitLogRepository.save(log);
+        eventLogService.recordMutation(DomainScope.PERSONAL, EntityType.HABIT_LOG, saved.getId(), ActionType.CREATE, null,
+                Map.of("id", saved.getId(), "logDate", saved.getLogDate(), "habitId", habitId));
+        return saved;
     }
 
     public List<CareerApplication> getCareerApplications(DomainScope domain) {

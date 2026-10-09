@@ -4,7 +4,7 @@ import com.tracker.rag.domain.DomainScope;
 import com.tracker.rag.dto.Citation;
 import com.tracker.rag.dto.HybridSearchResult;
 import com.tracker.rag.service.HybridRetrieverService;
-import com.tracker.rag.service.OllamaClientService;
+import com.tracker.rag.service.ai.AiClient;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.MediaType;
@@ -19,15 +19,23 @@ import java.util.concurrent.Executors;
 
 @RestController
 @RequestMapping("/api/chat")
-@CrossOrigin(origins = "*")
+
 public class ChatController {
+    @org.springframework.beans.factory.annotation.Value("${ai.personal-enabled:false}")
+    private boolean personalAiEnabled;
+
+    private void validateAiDomain(DomainScope scope) {
+        if (scope == DomainScope.PERSONAL && !personalAiEnabled)
+            throw new com.tracker.rag.service.ai.AiServiceException(403, "Cloud AI is disabled for Personal. Your private records and documents remain accessible.");
+    }
 
     private static final Logger log = LoggerFactory.getLogger(ChatController.class);
     private final HybridRetrieverService retrieverService;
-    private final OllamaClientService ollamaClientService;
+    private final AiClient ollamaClientService;
     private final ExecutorService sseExecutor = Executors.newVirtualThreadPerTaskExecutor();
+    @jakarta.annotation.PreDestroy void close() { sseExecutor.shutdown(); }
 
-    public ChatController(HybridRetrieverService retrieverService, OllamaClientService ollamaClientService) {
+    public ChatController(HybridRetrieverService retrieverService, AiClient ollamaClientService) {
         this.retrieverService = retrieverService;
         this.ollamaClientService = ollamaClientService;
     }
@@ -35,6 +43,7 @@ public class ChatController {
     @PostMapping("/ask")
     public ResponseEntity<AskResponse> ask(@RequestBody AskRequest request) {
         DomainScope scope = DomainScope.parse(request.domain());
+        validateAiDomain(scope);
         HybridSearchResult searchResult = retrieverService.search(request.query(), scope, 5);
 
         List<Citation> citations = searchResult.citations();
@@ -64,6 +73,7 @@ public class ChatController {
     public SseEmitter streamChat(@RequestParam String query, @RequestParam String domain) {
         SseEmitter emitter = new SseEmitter(120_000L);
         DomainScope scope = DomainScope.parse(domain);
+        validateAiDomain(scope);
 
         sseExecutor.submit(() -> {
             try {
@@ -72,8 +82,9 @@ public class ChatController {
 
                 if (citations.isEmpty()) {
                     emitter.send(SseEmitter.event()
-                            .name("message")
+                            .name("chunk")
                             .data("Not in your notes for domain " + scope.name() + ". Please add notes to ask questions."));
+                    emitter.send(SseEmitter.event().name("done").data("[DONE]"));
                     emitter.complete();
                     return;
                 }

@@ -36,6 +36,8 @@ public class HabitStreakService {
         if (frequency == null) {
             frequency = HabitFrequency.DAILY;
         }
+        if (frequency == HabitFrequency.CUSTOM_DAYS && (customDaysMask <= 0 || customDaysMask > 127))
+            throw new IllegalArgumentException("Select at least one valid day for a custom habit");
 
         Set<LocalDate> completedSet = (completionDates == null || completionDates.isEmpty())
                 ? Collections.emptySet()

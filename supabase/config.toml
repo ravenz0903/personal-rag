@@ -1,0 +1,3 @@
+[functions.reminders]
+# Authenticated by a private shared cron secret, checked before database access.
+verify_jwt = false

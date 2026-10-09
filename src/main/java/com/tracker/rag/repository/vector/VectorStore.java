@@ -11,6 +11,11 @@ import java.util.UUID;
  * Implementations must enforce strict fail-closed domain scoping.
  */
 public interface VectorStore {
+    default void deleteByDocumentId(String documentId, DomainScope domain) {
+        DomainScope.validateScope(domain);
+        findAllByDomain(domain).stream().filter(chunk -> documentId.equals(chunk.documentId()))
+                .forEach(chunk -> deleteById(chunk.id()));
+    }
 
     /**
      * Persists or updates a single vector chunk.
