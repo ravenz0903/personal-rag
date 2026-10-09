@@ -184,6 +184,33 @@ public class PgVectorStore implements VectorStore {
         return count != null ? count : 0L;
     }
 
+    @Override
+    public List<VectorChunk> findAll() {
+        String sql = "SELECT id, document_id, domain, page_number, heading_path, content, embedding::text AS embedding_str FROM vector_chunks";
+        return jdbcTemplate.query(sql, (rs, rowNum) -> mapVectorChunk(rs));
+    }
+
+    @Override
+    public List<VectorChunk> findAllByDomain(DomainScope domain) {
+        if (domain == null) {
+            throw new UnscopedQueryException("Domain scope must be explicitly specified (fail-closed)");
+        }
+        String sql = "SELECT id, document_id, domain, page_number, heading_path, content, embedding::text AS embedding_str FROM vector_chunks WHERE domain = ?";
+        return jdbcTemplate.query(sql, (rs, rowNum) -> mapVectorChunk(rs), domain.name());
+    }
+
+    private VectorChunk mapVectorChunk(ResultSet rs) throws SQLException {
+        UUID id = rs.getObject("id", UUID.class);
+        String documentId = rs.getString("document_id");
+        DomainScope domain = DomainScope.valueOf(rs.getString("domain"));
+        int pageNumber = rs.getInt("page_number");
+        String headingPath = rs.getString("heading_path");
+        String content = rs.getString("content");
+        String embeddingStr = rs.getString("embedding_str");
+        float[] embedding = parseVectorString(embeddingStr);
+        return new VectorChunk(id, documentId, domain, pageNumber, headingPath, content, embedding);
+    }
+
     private ScoredChunk mapScoredChunk(ResultSet rs) throws SQLException {
         UUID id = rs.getObject("id", UUID.class);
         String documentId = rs.getString("document_id");

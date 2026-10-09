@@ -78,3 +78,45 @@ Commit all project code, configuration, and documentation with clean commit hist
 ### Dashboard Usability & Git Sync
 - [ ] Web dashboard renders domain tabs (Academics, Personal with lock, Career, All), Today view, and quick capture modal.
 - [ ] All files committed and pushed to `origin main` on `https://github.com/ravenz0903/personal-rag.git`.
+
+## 2026-10-08T21:24:39Z
+
+Analyze the existing Personal Tracker + Study RAG v3 implementation, implement high-performance caching, inverted indexing, and virtual-threaded parallel ingestion, and verify performance improvements using an automated benchmark stress test suite.
+
+Working directory: c:/Users/harsh/OneDrive/Documents/personal tracking rag
+Integrity mode: development
+
+## Requirements
+
+### R1. High-Performance LRU Embedding & Query Cache
+Implement a thread-safe, bounded LRU cache (e.g. Caffeine or synchronized LRU with eviction) for query embeddings and chunk embeddings. Repeated queries must bypass HTTP roundtrips to Ollama, achieving sub-10ms response times for cached searches.
+
+### R2. In-Memory Inverted Index for Sparse BM25 Retrieval
+Replace the linear candidate scan in `HybridRetrieverService` with an in-memory inverted index (term-to-postings list with document frequency and chunk positions). Ensure sub-millisecond sparse keyword lookups and rank fusion across large collections without linear iteration.
+
+### R3. Virtual-Thread Parallel Ingestion & Batch Processing
+Parallelize document page extraction (PDFBox) and chunk embedding generation using Java 21 Virtual Threads (`Executors.newVirtualThreadPerTaskExecutor()`). Ensure ingestion does not block HTTP server threads and delivers at least a 2x throughput improvement for multi-page documents.
+
+### R4. Automated Performance Stress Benchmark Suite
+Develop a dedicated automated performance and stress test suite (`PerformanceBenchmarkTest.java`) measuring:
+- P50, P95, and P99 retrieval latencies under concurrent load.
+- Cache hit vs. cache miss latency differentials.
+- Ingestion throughput (chunks/sec).
+- Memory footprint stability.
+
+### R5. Zero Regression & Remote Synchronization
+Guarantee 100% backward compatibility and test integrity: all 309 existing unit, boundary, and integration tests must continue passing with zero failures. Commit and push all performance enhancements and benchmarks to `https://github.com/ravenz0903/personal-rag.git`.
+
+## Acceptance Criteria
+
+### Latency & Throughput Targets
+- [ ] Embedding cache hits resolve in <10ms without network calls.
+- [ ] Inverted index sparse keyword search executes in <15ms across 1,000+ indexed chunks.
+- [ ] Concurrent ingestion leverages Java 21 Virtual Threads for non-blocking execution.
+- [ ] Automated performance suite demonstrates clear throughput/latency gains.
+
+### Correctness & Baseline Integrity
+- [ ] All 309 baseline tests continue to pass (0 failures, 0 errors).
+- [ ] The new `PerformanceBenchmarkTest` passes deterministically in CI/local runs.
+- [ ] Domain isolation (`ACADEMICS`, `PERSONAL`, `CAREER`) remains strictly enforced across cached data and the inverted index.
+- [ ] All code changes, tests, and documentation are committed and pushed to `main` on GitHub.

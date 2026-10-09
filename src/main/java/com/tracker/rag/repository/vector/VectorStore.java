@@ -70,4 +70,19 @@ public interface VectorStore {
      * Returns the total count of indexed chunks for a given domain scope.
      */
     long countByDomain(DomainScope scope);
+
+    /**
+     * Retrieves all stored vector chunks across all domains.
+     * Used for startup hydration of in-memory indexes and diagnostics.
+     */
+    default List<VectorChunk> findAll() {
+        return List.of();
+    }
+
+    /**
+     * Retrieves all stored vector chunks for a specific domain scope.
+     */
+    default List<VectorChunk> findAllByDomain(DomainScope domain) {
+        return List.of();
+    }
 }

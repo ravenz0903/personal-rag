@@ -2,8 +2,11 @@ package com.tracker.rag.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.tracker.rag.domain.DomainScope;
+import com.tracker.rag.service.cache.EmbeddingCache;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 
@@ -42,23 +45,81 @@ public class OllamaClientService {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
+    private EmbeddingCache embeddingCache;
 
     public OllamaClientService(ObjectMapper objectMapper) {
+        this(objectMapper, null);
+    }
+
+    @Autowired
+    public OllamaClientService(ObjectMapper objectMapper, @Autowired(required = false) EmbeddingCache embeddingCache) {
         this.objectMapper = objectMapper;
+        this.embeddingCache = embeddingCache;
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(5))
                 .build();
     }
 
+    public void setEmbeddingCache(EmbeddingCache embeddingCache) {
+        this.embeddingCache = embeddingCache;
+    }
+
+    public EmbeddingCache getEmbeddingCache() {
+        return this.embeddingCache;
+    }
+
     /**
-     * Generate 768-dimensional float embedding using Ollama nomic-embed-text.
-     * Falls back to deterministic normalized hashing if Ollama is unreachable.
+     * Generate 768-dimensional float embedding scoped to a specific DomainScope.
+     * Checks the high-performance LRU cache first; on a miss, computes via Ollama
+     * (or deterministic fallback) and stores the result in cache before returning.
+     *
+     * @param text input text to embed
+     * @param domain mandatory domain scope (fails closed if null)
+     * @return 768-dimensional float embedding vector
+     * @throws com.tracker.rag.domain.UnscopedQueryException if domain is null
+     */
+    public float[] generateEmbedding(String text, DomainScope domain) {
+        DomainScope.validateScope(domain);
+        if (text == null || text.trim().isEmpty()) {
+            return new float[EMBEDDING_DIM];
+        }
+
+        if (embeddingCache != null) {
+            Optional<float[]> cached = embeddingCache.get(domain, text);
+            if (cached.isPresent()) {
+                log.debug("[OllamaClient] Cache HIT for domain {} and text length {}", domain, text.length());
+                return cached.get();
+            }
+        }
+
+        float[] embedding = computeEmbeddingInternal(text);
+
+        if (embeddingCache != null && embedding != null) {
+            embeddingCache.put(domain, text, embedding);
+        }
+
+        return embedding;
+    }
+
+    /**
+     * Backward-compatible overload for un-scoped callers.
+     * Computes embedding directly without caching to avoid un-scoped cache pollution
+     * and strictly preserve domain isolation.
+     *
+     * @param text input text to embed
+     * @return 768-dimensional float embedding vector
      */
     public float[] generateEmbedding(String text) {
         if (text == null || text.trim().isEmpty()) {
             return new float[EMBEDDING_DIM];
         }
+        return computeEmbeddingInternal(text);
+    }
 
+    /**
+     * Internal un-cached embedding computation via Ollama HTTP API with fallback.
+     */
+    private float[] computeEmbeddingInternal(String text) {
         try {
             Map<String, Object> requestBody = Map.of(
                     "model", embedModel,
@@ -90,6 +151,37 @@ public class OllamaClientService {
         }
 
         return generateDeterministicFallbackEmbedding(text);
+    }
+
+    /**
+     * Invalidates all cached embeddings for the specified domain.
+     *
+     * @param domain domain scope to purge
+     * @throws com.tracker.rag.domain.UnscopedQueryException if domain is null
+     */
+    public void invalidateCacheDomain(DomainScope domain) {
+        DomainScope.validateScope(domain);
+        if (embeddingCache != null) {
+            embeddingCache.invalidateDomain(domain);
+            log.info("[OllamaClient] Invalidated embedding cache for domain {}", domain);
+        }
+    }
+
+    /**
+     * Clears all cached embeddings across all domains.
+     */
+    public void clearCache() {
+        if (embeddingCache != null) {
+            embeddingCache.clear();
+            log.info("[OllamaClient] Cleared entire embedding cache");
+        }
+    }
+
+    /**
+     * Returns current cache statistics snapshot, or empty if cache is unconfigured.
+     */
+    public Optional<EmbeddingCache.CacheStats> getCacheStats() {
+        return embeddingCache != null ? Optional.of(embeddingCache.getStats()) : Optional.empty();
     }
 
     /**

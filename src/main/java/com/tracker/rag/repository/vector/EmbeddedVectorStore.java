@@ -224,4 +224,27 @@ public class EmbeddedVectorStore implements VectorStore {
         );
         return count != null ? count : 0L;
     }
+
+    @Override
+    public List<VectorChunk> findAll() {
+        if (inMemoryStore != null) {
+            return new ArrayList<>(inMemoryStore.values());
+        }
+        String sql = "SELECT id, document_id, domain, page_number, heading_path, content, embedding_bytes FROM vector_chunks";
+        return jdbcTemplate.query(sql, (rs, rowNum) -> mapVectorChunk(rs));
+    }
+
+    @Override
+    public List<VectorChunk> findAllByDomain(DomainScope domain) {
+        if (domain == null) {
+            throw new UnscopedQueryException("Domain scope must be explicitly specified (fail-closed)");
+        }
+        if (inMemoryStore != null) {
+            return inMemoryStore.values().stream()
+                    .filter(chunk -> chunk.domain() == domain)
+                    .toList();
+        }
+        String sql = "SELECT id, document_id, domain, page_number, heading_path, content, embedding_bytes FROM vector_chunks WHERE domain = ?";
+        return jdbcTemplate.query(sql, (rs, rowNum) -> mapVectorChunk(rs), domain.name());
+    }
 }
