@@ -49,6 +49,8 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
     protected com.tracker.rag.service.storage.DocumentStorageService originalStorage;
     @Autowired(required = false)
     protected org.springframework.transaction.PlatformTransactionManager transactions;
+    @org.springframework.beans.factory.annotation.Value("${documents.indexing-enabled:true}")
+    protected boolean indexingEnabled = true;
 
     private final ExecutorService asyncIngestionExecutor = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -131,7 +133,10 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         String fileHash = computeSha256(pdfBytes);
         String docKey = filePath + ":" + domain;
 
-        if (domain == DomainScope.PERSONAL && originalStorage != null) {
+        if ((domain == DomainScope.PERSONAL || !indexingEnabled) && originalStorage != null) {
+            try (PDDocument document = Loader.loadPDF(pdfBytes)) {
+                if (document.getNumberOfPages() == 0) throw new EmptyDocumentException("PDF contains no pages");
+            } catch (IOException e) { throw new DocumentParsingException("Invalid PDF: " + filePath, e); }
             return storePrivateDocument(filePath, domain, pdfBytes, "application/pdf", fileHash);
         }
 
@@ -291,7 +296,7 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
         String fileHash = computeSha256(bytes);
         String docKey = filePath + ":" + domain;
 
-        if (domain == DomainScope.PERSONAL && originalStorage != null) {
+        if ((domain == DomainScope.PERSONAL || !indexingEnabled) && originalStorage != null) {
             return storePrivateDocument(filePath, domain, bytes, "text/markdown", fileHash);
         }
 
@@ -493,9 +498,11 @@ public class DocumentIngestionService implements ParallelDocumentIngestionServic
     private IngestResult storePrivateDocument(String path, DomainScope domain, byte[] bytes, String type, String hash) {
         Optional<DocumentRecord> existing = documentRecordRepository.findByFilePathAndDomain(path, domain);
         if (existing.isPresent() && hash.equals(existing.get().getContentHash())) return IngestResult.skipped(path, hash);
+        if (existing.isPresent() && existing.get().getChunkCount() > 0)
+            throw new IllegalArgumentException("Keep the indexed original intact. Save the changed file with a different name while AI is postponed.");
         String storagePath = originalStorage.save(bytes, domain.name(), extractFilename(path), type);
         DocumentRecord record = existing.orElseGet(() -> new DocumentRecord(domain, extractFilename(path), path, type, hash, bytes.length));
-        record.setContentHash(hash); record.setStoragePath(storagePath); record.setChunkCount(0); record.setUpdatedAt(Instant.now());
+        record.setContentHash(hash); record.setStoragePath(storagePath); record.setFileSize(bytes.length); record.setChunkCount(0); record.setUpdatedAt(Instant.now());
         documentRecordRepository.save(record);
         return existing.isPresent() ? IngestResult.updated(path, 0, hash) : IngestResult.created(path, 0, hash);
     }

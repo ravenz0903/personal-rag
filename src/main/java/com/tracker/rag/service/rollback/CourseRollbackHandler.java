@@ -14,6 +14,7 @@ public class CourseRollbackHandler implements EntityRollbackHandler {
 
     private final CourseRepository courseRepository;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tracker.rag.service.desktop.DesktopUndoGuard desktop;
 
     public CourseRollbackHandler(CourseRepository courseRepository, ObjectMapper objectMapper) {
         this.courseRepository = courseRepository;
@@ -33,7 +34,7 @@ public class CourseRollbackHandler implements EntityRollbackHandler {
     @Override
     public void restoreEntity(UUID entityId, String jsonPayload) {
         try {
-            Course course = objectMapper.readValue(jsonPayload, Course.class);
+            Course course = desktop == null ? objectMapper.readValue(jsonPayload, Course.class) : objectMapper.readerForUpdating(courseRepository.findById(entityId).orElseThrow()).readValue(jsonPayload);
             courseRepository.save(course);
         } catch (Exception e) {
             throw new EntityRollbackException("Failed to deserialize and restore Course: " + entityId, e);

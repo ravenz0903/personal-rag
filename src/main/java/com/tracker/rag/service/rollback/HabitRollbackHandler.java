@@ -14,6 +14,7 @@ public class HabitRollbackHandler implements EntityRollbackHandler {
 
     private final HabitRepository repository;
     private final ObjectMapper objectMapper;
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tracker.rag.service.desktop.DesktopUndoGuard desktop;
 
     public HabitRollbackHandler(HabitRepository repository, ObjectMapper objectMapper) {
         this.repository = repository;
@@ -33,7 +34,7 @@ public class HabitRollbackHandler implements EntityRollbackHandler {
     @Override
     public void restoreEntity(UUID entityId, String jsonPayload) {
         try {
-            Habit habit = objectMapper.readValue(jsonPayload, Habit.class);
+            Habit habit = desktop == null ? objectMapper.readValue(jsonPayload, Habit.class) : objectMapper.readerForUpdating(repository.findById(entityId).orElseThrow()).readValue(jsonPayload);
             repository.save(habit);
         } catch (Exception e) {
             throw new EntityRollbackException("Failed to deserialize and restore Habit: " + entityId, e);

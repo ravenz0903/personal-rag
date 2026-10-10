@@ -23,6 +23,10 @@ public class SecurityConfig {
         if (cloud && !enabled) throw new IllegalStateException("Cloud deployment requires authentication");
         http.cors(cors -> {}).csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
+        if (Arrays.asList(environment.getActiveProfiles()).contains("desktop")) {
+            http.addFilterBefore(new DesktopApiGuard(environment.getProperty("tracker.desktop.token", "")),
+                    org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
+        }
         if (!enabled) {
             http.authorizeHttpRequests(auth -> auth.anyRequest().permitAll());
         } else {

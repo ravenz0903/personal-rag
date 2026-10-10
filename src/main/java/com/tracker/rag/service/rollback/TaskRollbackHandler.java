@@ -11,6 +11,7 @@ import java.util.UUID;
 
 @Component
 public class TaskRollbackHandler implements EntityRollbackHandler {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tracker.rag.service.desktop.DesktopTaskService desktop;
 
     private final TaskRepository taskRepository;
     private final ObjectMapper objectMapper;
@@ -33,7 +34,13 @@ public class TaskRollbackHandler implements EntityRollbackHandler {
     @Override
     public void restoreEntity(UUID entityId, String jsonPayload) {
         try {
-            Task task = objectMapper.readValue(jsonPayload, Task.class);
+            Task task;
+            if(desktop!=null){
+                Task current=taskRepository.findById(entityId).orElseThrow();long version=current.getVersion();
+                task=objectMapper.readerForUpdating(current).readValue(jsonPayload);task.setVersion(version);
+                var parent=objectMapper.readTree(jsonPayload).path("parentId");
+                task.setParentTask(parent.isTextual()?taskRepository.findById(java.util.UUID.fromString(parent.asText())).orElseThrow():null);
+            }else { task = objectMapper.readValue(jsonPayload, Task.class); taskRepository.findById(entityId).ifPresent(current -> task.setVersion(current.getVersion())); }
             taskRepository.save(task);
         } catch (Exception e) {
             throw new EntityRollbackException("Failed to deserialize and restore Task: " + entityId, e);

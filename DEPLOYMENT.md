@@ -1,5 +1,7 @@
 # Folio: free online deployment
 
+> The active project direction is now a local Windows desktop app. Use [DESKTOP.md](DESKTOP.md) for building, running, reminders, data migration, and backups. The cloud setup below is retained as a reference and is not required for the desktop edition. AI is postponed in desktop mode.
+
 Folio is a single-owner workspace. The React interface runs on Vercel Hobby; the Java API runs on Render Free; Supabase Free holds authentication, PostgreSQL vectors and private originals. Gemini's free API tier handles Academic/Career capture, embeddings and cited answers. Your computer can be off after deployment.
 
 There is no paid provider fallback. Keep Gemini on an **unbilled project**, choose only free plans, and use the supplied hosting subdomains. Free quotas can stop AI requests, Render sleeps when idle, and Supabase can pause inactive free projects. These services do not promise unlimited usage or permanent free availability. Grade calculations and tracker forms use no model calls. Gemini free-tier content may be used to improve Google's products; do not upload sensitive Academic/Career documents. Personal files and capture text are excluded from Gemini by default.

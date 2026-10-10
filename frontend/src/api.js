@@ -1,4 +1,3 @@
-import { createClient } from '@supabase/supabase-js';
 
 const base = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
 let client;
@@ -8,6 +7,7 @@ export async function configure() {
   const config = await response.json();
   if (config.authEnabled) {
     if (!config.supabaseUrl || !config.supabasePublicKey) throw new Error('Login is not configured. Complete the backend setup first.');
+    const { createClient } = await import('@supabase/supabase-js');
     client ||= createClient(config.supabaseUrl, config.supabasePublicKey);
   } else if (!['localhost', '127.0.0.1'].includes(location.hostname)) {
     throw new Error('This backend has authentication disabled. Use an authenticated cloud backend before publishing.');

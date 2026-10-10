@@ -17,7 +17,7 @@ public class ApiExceptionHandler {
     @ExceptionHandler(AiServiceException.class) ResponseEntity<?> ai(AiServiceException e) {
         return ResponseEntity.status(e.status()).body(Map.of("message", e.getMessage()));
     }
-    @ExceptionHandler({IllegalArgumentException.class, com.tracker.rag.domain.UnscopedQueryException.class,
+    @ExceptionHandler({IllegalArgumentException.class, java.time.DateTimeException.class, com.tracker.rag.domain.UnscopedQueryException.class,
             com.tracker.rag.dto.ExpiredConfirmationCardException.class, com.tracker.rag.dto.EmptyDocumentException.class,
             com.tracker.rag.dto.DocumentParsingException.class})
     ResponseEntity<?> invalid(RuntimeException e) { return ResponseEntity.badRequest().body(Map.of("message", e.getMessage())); }

@@ -291,28 +291,20 @@ public class AdversarialCacheBoundaryTest {
                     .as("At least 5,000 entries must have been evicted")
                     .isGreaterThanOrEqualTo(totalInserts - capacity);
 
-            // Verify older entries were evicted (e.g., keys 0..1000)
-            int evictedColdCount = 0;
-            for (int i = 0; i < 1000; i++) {
-                if (cache.get(DomainScope.ACADEMICS, "Large-Corpus-Text-Chunk-Key-" + i).isEmpty()) {
-                    evictedColdCount++;
+            // W-TinyLFU admission considers frequency and recency. It does not promise
+            // eviction of a particular insertion range or a fixed admission-window size.
+            // Check the complete population instead of assuming strict FIFO/LRU order.
+            int retained = 0;
+            for (int i = 0; i < totalInserts; i++) {
+                var value = cache.get(DomainScope.ACADEMICS, "Large-Corpus-Text-Chunk-Key-" + i);
+                if (value.isPresent()) {
+                    retained++;
+                    assertThat(value.get()[0]).isEqualTo((float) i);
+                    assertThat(value.get()[767]).isEqualTo((float) (i * 2));
                 }
             }
-            assertThat(evictedColdCount)
-                    .as("Early inserted cold entries must have been evicted")
-                    .isGreaterThan(800);
-
-            // Verify entries currently in Caffeine's admission window (the last 100 items inserted: 14900..14999)
-            // are 100% preserved
-            int windowPresentCount = 0;
-            for (int i = 14900; i < 15000; i++) {
-                if (cache.get(DomainScope.ACADEMICS, "Large-Corpus-Text-Chunk-Key-" + i).isPresent()) {
-                    windowPresentCount++;
-                }
-            }
-            assertThat(windowPresentCount)
-                    .as("Entries in the W-TinyLFU admission window (last 100) must be preserved")
-                    .isEqualTo(100);
+            assertThat(retained).as("Retained entries agree with cache accounting").isEqualTo(finalStats.size());
+            assertThat(totalInserts - retained).as("Overflow entries are absent").isGreaterThanOrEqualTo(totalInserts - capacity);
 
             System.gc();
             try { Thread.sleep(50); } catch (InterruptedException ignored) {}

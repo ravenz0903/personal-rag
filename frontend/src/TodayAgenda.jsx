@@ -1,0 +1,11 @@
+import React, { useEffect, useState } from 'react';
+import { api } from './api';
+import { dateInZone, wallTime } from './localTime';
+export default function TodayAgenda({ domain, timezone, tasks, courses, habits, onLog, busy, onEdit, onCalendar }) {
+  const [events, setEvents] = useState([]), [error, setError] = useState('');
+  useEffect(() => { let active = true; api(`/api/local/calendar?domain=${domain}`).then(e => { if (active) setEvents(e); }).catch(e => { if (active) setError(e.message); }); return () => { active = false; }; }, [domain]);
+  const today = dateInZone(Date.now(), timezone), due = tasks.filter(t => !t.archived && !['COMPLETED', 'CANCELLED'].includes(t.status) && t.dueDate && dateInZone(t.dueDate, timezone) <= today);
+  const appointments = events.filter(e => (domain === 'ALL' ? ['ACADEMICS','CAREER'].includes(e.domain) : e.domain === domain)).filter(e => e.allDay ? e.startDate <= today && e.endDate > today : dateInZone(e.startAt, timezone) <= today && dateInZone(new Date(e.endAt).getTime() - 1, timezone) >= today);
+  const assessments = courses.flatMap(c => c.assessments.map(a => ({ ...a, code: c.code }))).filter(a => a.dueDate && new Date(a.dueDate) >= new Date() && new Date(a.dueDate) < new Date(Date.now() + 7 * 86400000));
+  return <section className="today-agenda"><h2>Today & coming up</h2>{error && <p role="alert">{error}</p>}{due.map(t => <button key={t.id} onClick={() => onEdit(t)}><span>{dateInZone(t.dueDate, timezone) < today ? 'Overdue' : 'Today'}</span>{t.title}</button>)}{appointments.map(e => <button key={e.id} onClick={() => onCalendar(e.id)}><span>{e.allDay ? 'All day' : wallTime(e.startAt, timezone).slice(11)}</span>{e.title}</button>)}{assessments.map(a => <button key={a.id} onClick={() => onCalendar(null)}><span>{dateInZone(a.dueDate, timezone)}</span>{a.code} · {a.title}</button>)}{domain === 'PERSONAL' && habits?.map(({habit, streak}) => <button key={habit.id} disabled={busy || streak.completedToday} onClick={() => onLog(habit.id)}><span>{streak.completedToday ? 'Checked in' : 'Check in'}</span>{habit.name} · {streak.currentStreak} day streak</button>)}{!due.length && !appointments.length && !assessments.length && <p className="hint">No deadlines or events coming up. A little breathing room.</p>}</section>;
+}

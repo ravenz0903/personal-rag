@@ -20,6 +20,7 @@ import java.util.UUID;
 
 @Service
 public class RollbackService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tracker.rag.service.desktop.DesktopUndoGuard desktopGuard;
 
     private static final Logger log = LoggerFactory.getLogger(RollbackService.class);
 
@@ -74,6 +75,7 @@ public class RollbackService {
         if (targetEvent.getAction() == ActionType.ROLLBACK) {
             throw new UnsupportedOperationException("Cannot roll back an existing ROLLBACK event: " + targetEvent.getId());
         }
+        if(desktopGuard!=null)desktopGuard.check(targetEvent);
 
         log.info("Executing rollback on event {} (action={}, entityType={}, entityId={})",
             targetEvent.getId(), targetEvent.getAction(), targetEvent.getEntityType(), targetEvent.getEntityId());

@@ -27,11 +27,11 @@ public class WorkspaceService {
         this.applications = applications; this.events = events; this.grades = grades; this.mapper = mapper;
     }
     public List<CourseView> courseViews() {
-        return courses.findByDomain(DomainScope.ACADEMICS).stream().map(course -> {
+        return courses.findByDomain(DomainScope.ACADEMICS).stream().filter(course -> !course.isArchived()).map(course -> {
             List<CategoryView> categoryViews = categories.findByCourseId(course.getId()).stream().map(category ->
                     new CategoryView(category.getId(), category.getName(), category.getWeight(), category.getDropLowestN())).toList();
             List<AssessmentView> assessmentViews = assessments.findByCourseId(course.getId()).stream().map(a ->
-                    new AssessmentView(a.getId(), a.getCategory().getId(), a.getTitle(), a.getMaxScore(), a.getEarnedScore(), a.getDueDate())).toList();
+                    new AssessmentView(a.getId(), a.getCategory().getId(), a.getTitle(), a.getMaxScore(), a.getEarnedScore(), a.getDueDate(), a.getUpdatedAt())).toList();
             List<CategoryGradeInput> inputs = categoryViews.stream().map(category -> new CategoryGradeInput(category.name(), category.weight(), category.dropLowestN(),
                     assessmentViews.stream().filter(a -> a.categoryId().equals(category.id()) && a.earnedScore() != null)
                             .map(a -> a.earnedScore().multiply(new BigDecimal("100")).divide(a.maxScore(), 6, RoundingMode.HALF_UP)).toList())).toList();
@@ -63,7 +63,7 @@ public class WorkspaceService {
         assessment.setEarnedScore(score); assessment.setCompleted(true);
         assessments.save(assessment);
         events.recordMutation(DomainScope.ACADEMICS, EntityType.ASSESSMENT, id, ActionType.UPDATE, before, assessment);
-        return new AssessmentView(id, assessment.getCategory().getId(), assessment.getTitle(), assessment.getMaxScore(), score, assessment.getDueDate());
+        return new AssessmentView(id, assessment.getCategory().getId(), assessment.getTitle(), assessment.getMaxScore(), score, assessment.getDueDate(), assessment.getUpdatedAt());
     }
     @Transactional public CareerApplication updateCareerStatus(UUID id, CareerStatus status) {
         CareerApplication application = applications.findByIdAndDomain(id, DomainScope.CAREER).orElseThrow(() -> new IllegalArgumentException("Application not found"));
@@ -73,6 +73,6 @@ public class WorkspaceService {
         return application;
     }
     public record CategoryView(UUID id, String name, BigDecimal weight, int dropLowestN) {}
-    public record AssessmentView(UUID id, UUID categoryId, String title, BigDecimal maxScore, BigDecimal earnedScore, Instant dueDate) {}
+    public record AssessmentView(UUID id, UUID categoryId, String title, BigDecimal maxScore, BigDecimal earnedScore, Instant dueDate, java.time.Instant updatedAt) {}
     public record CourseView(UUID id, String code, String name, String term, BigDecimal targetGrade, List<CategoryView> categories, List<AssessmentView> assessments, CourseGradeResult grade) {}
 }

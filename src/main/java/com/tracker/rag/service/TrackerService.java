@@ -21,6 +21,7 @@ import java.util.*;
 @Service
 @Transactional(readOnly = true)
 public class TrackerService {
+    @org.springframework.beans.factory.annotation.Autowired(required=false) private com.tracker.rag.service.desktop.DesktopTaskService desktopTasks;
 
     private final TaskRepository taskRepository;
     private final CourseRepository courseRepository;
@@ -72,6 +73,7 @@ public class TrackerService {
 
     @Transactional
     public Task toggleTaskStatus(UUID taskId) {
+        if(desktopTasks!=null)return desktopTasks.toggle(taskId);
         Task task = taskRepository.findById(taskId)
                 .orElseThrow(() -> new IllegalArgumentException("Task not found: " + taskId));
         Task before = new Task(task.getDomain(), task.getTitle(), task.getPriority(), task.getDueDate());
@@ -98,6 +100,7 @@ public class TrackerService {
     public List<HabitWithStreak> getHabitsWithStreaks(DomainScope domain, ZoneId zoneId) {
         DomainScope.validateScope(domain);
         List<Habit> habits = habitRepository.findByDomain(domain);
+        habits = habits.stream().filter(h -> !h.isArchived()).toList();
         List<HabitWithStreak> result = new ArrayList<>();
 
         for (Habit habit : habits) {
@@ -128,7 +131,7 @@ public class TrackerService {
 
     public List<CareerApplication> getCareerApplications(DomainScope domain) {
         DomainScope.validateScope(domain);
-        return careerApplicationRepository.findByDomain(domain);
+        return careerApplicationRepository.findByDomain(domain).stream().filter(a -> !a.isArchived()).toList();
     }
 
     public List<Course> getCourses(DomainScope domain) {
@@ -142,7 +145,7 @@ public class TrackerService {
     public TodayDashboard getTodayDashboard(Set<DomainScope> activeDomains, ZoneId zoneId) {
         Set<DomainScope> scopes = DomainScope.validateAndResolve(activeDomains);
         List<Task> pendingTasks = taskRepository.findByDomainIn(scopes).stream()
-                .filter(t -> t.getStatus() != TaskStatus.COMPLETED)
+                .filter(t -> !t.isArchived() && t.getStatus() != TaskStatus.COMPLETED && t.getStatus() != TaskStatus.CANCELLED)
                 .toList();
 
         List<CareerApplication> applications = careerApplicationRepository.findByDomainIn(scopes);

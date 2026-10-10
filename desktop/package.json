@@ -1,0 +1,64 @@
+{
+  "name": "folio-desktop",
+  "version": "0.2.0",
+  "private": true,
+  "description": "Folio local Windows workspace",
+  "author": "Folio",
+  "main": "main.cjs",
+  "scripts": {
+    "start": "electron .",
+    "prepare": "node scripts/prepare.cjs",
+    "test": "node --test test/*.test.cjs",
+    "package": "node scripts/prepare.cjs && electron-builder --win --dir",
+    "dist": "node scripts/prepare.cjs && electron-builder --win nsis"
+  },
+  "devDependencies": {
+    "electron": "44.7.0",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "com.folio.workspace",
+    "productName": "Folio",
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "main.cjs",
+      "preload.cjs",
+      "runtime.cjs",
+      "backup.cjs",
+      "assets/**"
+    ],
+    "extraResources": [
+      {
+        "from": "resources/backend.jar",
+        "to": "backend.jar"
+      },
+      {
+        "from": "resources/frontend",
+        "to": "frontend",
+        "filter": [
+          "**/*",
+          "!dist/**"
+        ]
+      },
+      {
+        "from": "resources/runtime",
+        "to": "runtime"
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/folio.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "deleteAppDataOnUninstall": false
+    }
+  },
+  "dependencies": {
+    "yauzl": "3.4.0"
+  }
+}

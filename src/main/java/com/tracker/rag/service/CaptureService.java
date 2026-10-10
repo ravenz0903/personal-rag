@@ -34,6 +34,7 @@ public class CaptureService {
     private ObjectMapper mapper;
     @Value("${ai.capture-enabled:true}") private boolean aiEnabled;
     @Value("${tracker.timezone:Asia/Kolkata}") private String defaultTimezone;
+    @Autowired(required=false) private com.tracker.rag.service.desktop.DesktopTaskService desktopTasks;
 
     public CaptureService(EventLogService events, TaskRepository tasks, HabitRepository habits, CareerApplicationRepository careers) {
         this.events = events; this.tasks = tasks; this.habits = habits; this.careers = careers;
@@ -84,6 +85,7 @@ public class CaptureService {
                 if (type.equals("TASK_UPDATE")) {
                     UUID id = UUID.fromString(required(raw, "taskId", 36));
                     existing = tasks.findByIdAndDomain(id, domain).orElseThrow(() -> new IllegalArgumentException("Task not found in this area"));
+                    if(desktopTasks!=null){if(!(raw.get("expectedVersion") instanceof Number expected)||expected.longValue()!=existing.getVersion())com.tracker.rag.service.desktop.LocalDataService.conflict();payload.put("expectedVersion",existing.getVersion());}
                     payload.put("taskId", id.toString());
                     payload.put("expectedUpdatedAt", Objects.toString(existing.getUpdatedAt(), ""));
                     payload.put("status", TaskStatus.valueOf(Objects.toString(raw.getOrDefault("status", existing.getStatus().name()))).name());
@@ -107,6 +109,14 @@ public class CaptureService {
                     payload.putIfAbsent("dueDate", "");
                     payload.putIfAbsent("remindAt", "");
                     payload.putIfAbsent("description", "");
+                }
+                if(desktopTasks!=null){
+                    var json=mapper.valueToTree(raw);
+                    payload.put("tags",raw.containsKey("tags")?com.tracker.rag.service.desktop.LocalDataService.tags(json):existing==null?List.of():existing.getTags());
+                    String recurrence=Objects.toString(raw.getOrDefault("recurrence",existing==null?"NONE":existing.getRecurrence()));
+                    if(!Set.of("NONE","DAILY","WEEKDAYS","WEEKLY","MONTHLY").contains(recurrence))throw new IllegalArgumentException("Invalid recurrence");
+                    if(!recurrence.equals("NONE")&&date==null)throw new IllegalArgumentException("Recurring tasks need a deadline");payload.put("recurrence",recurrence);
+                    payload.put("parentId",Objects.toString(raw.getOrDefault("parentId",existing==null?"":Objects.toString(existing.getParentId(),"")),""));
                 }
             }
             case "HABIT" -> {
@@ -165,12 +175,16 @@ public class CaptureService {
                 case "TASK_UPDATE" -> {
                     Task task = tasks.lockForEdit(UUID.fromString((String)p.get("taskId")), card.targetDomain()).orElseThrow(() -> new IllegalArgumentException("Task no longer exists in this area"));
                     if (!Objects.toString(task.getUpdatedAt(), "").equals(p.get("expectedUpdatedAt"))) throw new IllegalArgumentException("This task changed since the preview. Create a new draft.");
+                    if(desktopTasks!=null&&task.getVersion()!=((Number)p.get("expectedVersion")).longValue())com.tracker.rag.service.desktop.LocalDataService.conflict();
                     before = mapper.valueToTree(task);
+                    TaskStatus previousStatus=task.getStatus();
+                    Instant previousDue=task.getDueDate();
                     task.setTitle((String)p.get("title"));
                     task.setPriority(TaskPriority.valueOf((String)p.get("priority")));
                     task.setStatus(TaskStatus.valueOf((String)p.get("status")));
                     applyTaskDetails(task, p);
-                    entity = tasks.save(task); id = task.getId(); entityType = EntityType.TASK; action = ActionType.UPDATE;
+                    if(desktopTasks!=null){if(!Objects.equals(previousDue,task.getDueDate())){task.setRecurrenceDay(null);task.setRecurrenceTime(null);}desktopTasks.details(task,p,previousStatus);}
+                    entity = tasks.saveAndFlush(task); id = task.getId(); entityType = EntityType.TASK; action = ActionType.UPDATE;
                 }
                 case "HABIT" -> {
                     Habit saved = habits.save(new Habit((String)p.get("name"), HabitFrequency.valueOf((String)p.get("frequency")), 1, (String)p.get("timezone")));
@@ -191,6 +205,7 @@ public class CaptureService {
                 default -> {
                     Task task = new Task(card.targetDomain(), (String)p.get("title"), TaskPriority.valueOf((String)p.get("priority")), null);
                     applyTaskDetails(task, p);
+                    if(desktopTasks!=null)desktopTasks.details(task,p,TaskStatus.PENDING);
                     Task saved = tasks.save(task);
                     id = saved.getId(); entity = saved; entityType = EntityType.TASK;
                 }

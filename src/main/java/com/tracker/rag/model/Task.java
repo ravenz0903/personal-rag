@@ -97,6 +97,32 @@ public class Task {
 
     @Column(name = "updated_at", nullable = false)
     private Instant updatedAt;
+    @Column(nullable=false) private boolean archived;
+    @Column(name="tags", nullable=false, length=2000) private String tagText = "";
+    @Column(nullable=false, length=16) private String recurrence = "NONE";
+    @Column(name="recurrence_day") private Integer recurrenceDay;
+    @Column(name="recurrence_time",length=5) private String recurrenceTime;
+    public String getRecurrenceTime(){return recurrenceTime;}
+    public void setRecurrenceTime(String value){recurrenceTime=value;}
+    @Column(name="series_id") private UUID seriesId;
+    @Column(name="successor_id") private UUID successorId;
+    @jakarta.persistence.Version private long version;
+    public boolean isArchived() { return archived; }
+    public void setArchived(boolean value) { archived = value; }
+    public List<String> getTags() { return tagText.isBlank() ? List.of() : List.of(tagText.split(",")); }
+    public void setTags(List<String> tags) { tagText = String.join(",", tags); }
+    public String getRecurrence() { return recurrence; }
+    public void setRecurrence(String value) { recurrence = value; }
+    public Integer getRecurrenceDay() { return recurrenceDay; }
+    public void setRecurrenceDay(Integer value) { recurrenceDay = value; }
+    public UUID getSeriesId() { return seriesId; }
+    public void setSeriesId(UUID value) { seriesId = value; }
+    public UUID getSuccessorId() { return successorId; }
+    public void setSuccessorId(UUID value) { successorId = value; }
+    public long getVersion() { return version; }
+    public void setVersion(long value) { version = value; }
+    @com.fasterxml.jackson.annotation.JsonProperty(access=com.fasterxml.jackson.annotation.JsonProperty.Access.READ_ONLY)
+    public UUID getParentId() { return parentTask == null ? null : parentTask.getId(); }
 
     public Task() {
     }

@@ -17,10 +17,12 @@ import java.util.*;
 public class DocumentStorageService {
     private final String url, key, bucket;
     private final boolean cloud;
-    private final Path root = Path.of("data", "documents").toAbsolutePath().normalize();
+    private final Path root;
     private final HttpClient http = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
     public DocumentStorageService(Environment env, @Value("${supabase.url:}") String url,
-            @Value("${supabase.service-key:}") String key, @Value("${supabase.storage.bucket:documents}") String bucket) {
+            @Value("${supabase.service-key:}") String key, @Value("${supabase.storage.bucket:documents}") String bucket,
+            @Value("${tracker.documents.root:${FOLIO_DATA_DIR:data}/documents}") String documentsRoot) {
+        this.root = Path.of(documentsRoot).toAbsolutePath().normalize();
         this.url = url; this.key = key; this.bucket = bucket;
         this.cloud = Arrays.asList(env.getActiveProfiles()).contains("cloud");
         if (cloud && (key.isBlank() || !url.startsWith("https://"))) throw new IllegalStateException("Private document storage requires Supabase credentials");
@@ -40,7 +42,9 @@ public class DocumentStorageService {
                 int status = http.send(request, HttpResponse.BodyHandlers.discarding()).statusCode();
                 if (status < 200 || status >= 300) throw new IllegalStateException("Storage rejected upload");
             } else {
-                Path destination = resolve(objectKey); Files.createDirectories(destination.getParent()); Files.write(destination, bytes);
+                Path destination = resolve(objectKey); Files.createDirectories(destination.getParent());
+                Path temporary=Files.createTempFile(destination.getParent(),"upload-",".tmp");
+                try{Files.write(temporary,bytes);Files.move(temporary,destination,StandardCopyOption.ATOMIC_MOVE,StandardCopyOption.REPLACE_EXISTING);}finally{Files.deleteIfExists(temporary);}
             }
             return objectKey;
         } catch (InterruptedException e) {

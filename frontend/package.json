@@ -3,7 +3,24 @@
   "version": "1.0.0",
   "private": true,
   "type": "module",
-  "scripts": { "dev": "vite --host 127.0.0.1", "build": "vite build", "test": "node --test src/calendar.test.js", "preview": "vite preview --host 127.0.0.1" },
-  "dependencies": { "@supabase/supabase-js": "2.117.3", "lucide-react": "1.54.0", "react": "19.3.0", "react-dom": "19.3.0" },
-  "devDependencies": { "vite": "8.3.4" }
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "vite build",
+    "test": "node --test src/*.test.js",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "2.117.3",
+    "@tiptap/extension-task-item": "^3.31.4",
+    "@tiptap/extension-task-list": "^3.31.4",
+    "@tiptap/pm": "^3.31.4",
+    "@tiptap/react": "^3.31.4",
+    "@tiptap/starter-kit": "^3.31.4",
+    "lucide-react": "1.54.0",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.4"
+  }
 }

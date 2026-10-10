@@ -142,4 +142,8 @@ public class Course {
 
     public Instant getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(Instant updatedAt) { this.updatedAt = updatedAt; }
+    @jakarta.persistence.Column(nullable=false) private boolean archived;
+    public boolean isArchived() { return archived; }
+    public void setArchived(boolean value) { archived = value; }
+
 }
