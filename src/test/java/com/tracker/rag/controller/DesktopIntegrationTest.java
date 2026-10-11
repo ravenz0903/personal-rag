@@ -35,7 +35,11 @@ class DesktopIntegrationTest {
         mvc.perform(get("/api/config")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/config").header("X-Folio-Desktop-Token", "wrong")).andExpect(status().isUnauthorized());
         mvc.perform(get("/api/config").header("X-Folio-Desktop-Token", TOKEN)).andExpect(status().isOk())
-                .andExpect(jsonPath("$.desktopMode").value(true)).andExpect(jsonPath("$.aiEnabled").value(false));
+                .andExpect(jsonPath("$.desktopMode").value(true)).andExpect(jsonPath("$.aiEnabled").value(false))
+                .andExpect(jsonPath("$.aiProvider").value("disabled"))
+                .andExpect(jsonPath("$.localAiStatus.state").value("disabled"))
+                .andExpect(jsonPath("$.aiConfigured").value(false))
+                .andExpect(jsonPath("$.localAiStatus.key").doesNotExist());
         mvc.perform(post("/api/assistant/actions").header("X-Folio-Desktop-Token", TOKEN).contentType("application/json").content("{}"))
                 .andExpect(status().isServiceUnavailable());
     }

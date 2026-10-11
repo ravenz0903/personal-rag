@@ -4,7 +4,8 @@ body { background: #191919; }
 /* Firefox uses its slim native scrollbar; Chromium gets an exact 4px rail. */
 * { scrollbar-width: thin; scrollbar-color: #454545 transparent; }
 @supports selector(::-webkit-scrollbar) {
-  * { scrollbar-width: auto; }
+  /* A non-auto scrollbar-color also overrides WebKit's custom rail in Chromium. */
+  * { scrollbar-width: auto; scrollbar-color: auto; }
   ::-webkit-scrollbar { width: 4px; height: 4px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #454545; border-radius: 8px; }
@@ -258,3 +259,5 @@ footer span { color: #999; font-family: inherit; font-style: normal; }
 .reminder-settings h3 { display: flex; gap: 8px; align-items: center; margin: 0 0 8px; }
 .reminder-settings p { color: #aaa; font-size: 13px; line-height: 1.6; margin: 5px 0; }
 .assistant-scope { flex-wrap: wrap; }
+
+.assistant-choices{display:flex;flex-direction:column;align-items:flex-start;gap:8px;margin-top:14px}

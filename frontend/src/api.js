@@ -35,8 +35,8 @@ export async function api(path, options = {}) {
   return response.json();
 }
 export const post = (path, body) => api(path, { method: 'POST', ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
-export async function streamChat(query, domain, onEvent, signal) {
-  const response = await fetch(`${base}/api/chat/stream?query=${encodeURIComponent(query)}&domain=${domain}`, { headers: await headers(false), signal });
+export async function streamChat(query, domain, onEvent, signal, requestId) {
+  const response = await fetch(`${base}/api/chat/stream?query=${encodeURIComponent(query)}&domain=${domain}${requestId ? '&requestId=' + encodeURIComponent(requestId) : ''}`, { headers: await headers(false), signal });
   if (!response.ok) {
     const body = await response.json().catch(() => ({}));
     throw new Error(body.message || 'Could not start the answer.');

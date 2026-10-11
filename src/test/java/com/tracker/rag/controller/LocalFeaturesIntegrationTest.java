@@ -30,7 +30,7 @@ class LocalFeaturesIntegrationTest {
     @Autowired HabitRepository habits;@Autowired HabitLogRepository logs;
     JsonNode json(String value)throws Exception{return mapper.readTree(value);}
     @Test void versionedSchemaValidatesAndSettingsPersist()throws Exception{
-        assertEquals(4,jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success=TRUE AND type='SQL'",Integer.class));
+        assertEquals(5,jdbc.queryForObject("SELECT COUNT(*) FROM flyway_schema_history WHERE success=TRUE AND type='SQL'",Integer.class));
         data.preferences(json("{\"displayName\":\"Harsh\",\"timezone\":\"America/New_York\",\"weekStart\":1,\"remindersEnabled\":true}"));assertEquals("America/New_York",data.zone().getId());
     }
     @Test void noteConflictsAndPersonalSearchAreEnforced()throws Exception{

@@ -14,6 +14,14 @@ public class DesktopUndoGuard {
     private final JdbcTemplate jdbc;private final TaskRepository tasks;private final com.fasterxml.jackson.databind.ObjectMapper mapper;
     public DesktopUndoGuard(JdbcTemplate jdbc,TaskRepository tasks,com.fasterxml.jackson.databind.ObjectMapper mapper){this.jdbc=jdbc;this.tasks=tasks;this.mapper=mapper;}
     public void check(EventLogEntry event){
+        // Serialize undo with normal edits before inspecting the latest history.
+        // Locking only the history row leaves a race with updates to the record.
+        String recordTable=switch(event.getEntityType()){
+            case TASK->"tasks";case COURSE->"courses";case ASSESSMENT_CATEGORY->"assessment_categories";
+            case ASSESSMENT->"assessments";case HABIT->"habits";case HABIT_LOG->"habit_logs";
+            case CAREER_APPLICATION->"career_applications";case DOCUMENT_RECORD->"document_records";default->null;
+        };
+        if(recordTable!=null)jdbc.queryForList("SELECT id FROM "+recordTable+" WHERE id=? FOR UPDATE",event.getEntityId());
         Long later=jdbc.queryForObject("SELECT COUNT(*) FROM event_log WHERE entity_id=? AND entity_type=? AND timestamp>? AND undone=FALSE AND action<>'ROLLBACK'",Long.class,event.getEntityId(),event.getEntityType().name(),java.sql.Timestamp.from(event.getTimestamp()));
         if(later>0)reject("Undo the newer change to this record first");
         if(event.getEntityType()==EntityType.TASK){

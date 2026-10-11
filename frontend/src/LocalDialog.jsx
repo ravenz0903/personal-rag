@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-export default function LocalDialog({ title, onClose, children, busy = false }) {
+export default function LocalDialog({ title, onClose, children, busy = false, error }) {
   const ref = useRef(null);
   const closing = useRef(onClose), working = useRef(busy); closing.current = onClose; working.current = busy;
   useEffect(() => {
@@ -11,5 +11,5 @@ export default function LocalDialog({ title, onClose, children, busy = false }) 
     const current = ref.current;
     return () => { current.removeEventListener('keydown', key); previous?.focus(); };
   }, []);
-  return <div className="modal-overlay"><div ref={ref} className="modal-card" role="dialog" aria-modal="true" aria-label={title}><div className="modal-top"><h2>{title}</h2><button className="icon-button" disabled={busy} aria-label="Close dialog" onClick={onClose}>×</button></div>{children}</div></div>;
+  return <div className="modal-overlay"><div ref={ref} className="modal-card" role="dialog" aria-modal="true" aria-label={title}><div className="modal-top"><h2>{title}</h2><button className="icon-button" disabled={busy} aria-label="Close dialog" onClick={onClose}>×</button></div>{error && <p className="alert" role="alert">{error}</p>}{children}</div></div>;
 }

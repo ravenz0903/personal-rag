@@ -3,14 +3,21 @@ const path = require('node:path');
 const fs = require('node:fs/promises');
 const { startBackend, waitForBackend } = require('./runtime.cjs');
 const { stageBackup, saveResponse, recoverInterruptedRestore } = require('./backup.cjs');
+const { startLocalAi } = require('./ai/service.cjs');
 
 app.setAppUserModelId('com.folio.workspace');
 app.setName('Folio');
 app.setPath('userData', path.join(app.getPath('appData'), 'Folio'));
-let window, tray, backend, quitting = false, restoring = false, polling = false, timer;
+require('./logging.cjs').installLogger(app.getPath('userData'));
+let window, tray, backend, localAi, quitting = false, restoring = false, polling = false, timer;
 const notifications = new Set();
 const resources = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
 const icon = () => nativeImage.createFromPath(path.join(__dirname, 'assets', 'folio.png'));
+async function openBackend(data) {
+  localAi = await startLocalAi(resources);
+  try { return await startBackend(resources, data, localAi.environment); }
+  catch (error) { await localAi.close(); throw error; }
+}
 function showWindow() { if (window) { window.show(); window.restore(); window.focus(); } }
 function notify(message, onClick) {
   if (!Notification.isSupported()) throw new Error('Windows notifications are unavailable on this device.');
@@ -96,16 +103,16 @@ function registerActions() {
       await saveResponse(await fetch(backend.origin + '/api/desktop/backup', { headers: { 'X-Folio-Desktop-Token': backend.token }, signal: AbortSignal.timeout(120000) }), path.join(recovery, `before-restore-${Date.now()}.zip`));
       await fs.writeFile(journal,JSON.stringify({prior:path.basename(prior)}),{flag:'wx'});
       await stopBackend(); await fs.rename(current, prior); swapped = true; await fs.rename(verified(staged.data), current);
-      backend = await startBackend(resources, root); watchBackend(); await waitForBackend(backend);
+      backend = await openBackend(root); watchBackend(); await waitForBackend(backend);
       await window.webContents.executeJavaScript("Object.keys(localStorage).filter(k=>k.startsWith('folio-note-draft:')).forEach(k=>localStorage.removeItem(k))");
       await fs.rm(journal);await window.loadURL(backend.origin); return { restored: true };
     } catch (error) {
       if (swapped) {
         await stopBackend().catch(() => {});
         if (await fs.stat(current).catch(() => null)) await fs.rename(current, verified(path.join(root, 'data-failed-restore-' + Date.now())));
-        await fs.rename(prior, current); backend = await startBackend(resources, root); watchBackend(); await waitForBackend(backend); await window.loadURL(backend.origin);
+        await fs.rename(prior, current); backend = await openBackend(root); watchBackend(); await waitForBackend(backend); await window.loadURL(backend.origin);
       } else if (backend.child.exitCode !== null) {
-        backend = await startBackend(resources, root); watchBackend(); await waitForBackend(backend); await window.loadURL(backend.origin);
+        backend = await openBackend(root); watchBackend(); await waitForBackend(backend); await window.loadURL(backend.origin);
       }
       await fs.rm(journal,{force:true});
       throw new Error(`Restore stopped: ${error.message} The previous workspace is retained.`);
@@ -117,30 +124,25 @@ function watchBackend() {
   backend.child.once('exit', () => { if (!quitting && !restoring) { dialog.showErrorBox('Workspace stopped', 'Restart Folio to reopen your workspace. Your records remain saved.'); app.quit(); } });
 }
 async function stopBackend() {
-  if (!backend || backend.child.exitCode !== null) return;
+  await localAi?.close(); localAi = null;
+  if (!backend || backend.child.exitCode !== null || backend.child.signalCode !== null) return;
   const child = backend.child, exited = new Promise(resolve => child.once('exit', resolve));
   await request('/api/desktop/shutdown', { method: 'POST' }).catch(() => {});
   await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 12000))]);
-  if (child.exitCode === null) { child.kill(); await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 5000))]); }
-  if (child.exitCode === null) throw new Error('The workspace could not be stopped safely.');
+  if (child.exitCode === null && child.signalCode === null) { child.kill(); await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 5000))]); }
+  if (child.exitCode === null && child.signalCode === null) throw new Error('The workspace could not be stopped safely.');
 }
 async function launch() {
   const data = app.getPath('userData');
   await fs.mkdir(data, { recursive: true });
   await recoverInterruptedRestore(data);
-  backend = await startBackend(resources, data);
-  watchBackend();
-  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
-    if (new URL(details.url).origin === backend.origin) details.requestHeaders['X-Folio-Desktop-Token'] = backend.token;
-    callback({ requestHeaders: details.requestHeaders });
-  });
   session.defaultSession.setPermissionRequestHandler((_contents, _permission, callback) => callback(false));
   window = new BrowserWindow({ width: 1280, height: 850, minWidth: 740, minHeight: 560, title: 'Folio', backgroundColor: '#191919', icon: icon(), show: false,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs'), contextIsolation: true, nodeIntegration: false, sandbox: true, webSecurity: true } });
   window.setMenuBarVisibility(false);
   window.on('close', event => { if (!quitting) { event.preventDefault(); window.hide(); } });
   window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
-  window.webContents.on('will-navigate', (event, url) => { if (new URL(url).origin !== backend.origin) event.preventDefault(); });
+  window.webContents.on('will-navigate', (event, url) => { if (!backend || new URL(url).origin !== backend.origin) event.preventDefault(); });
   window.webContents.on('will-attach-webview', event => event.preventDefault());
   await window.loadFile(path.join(__dirname, 'assets', 'loading.html'));
   if (!process.argv.includes('--hidden')) showWindow();
@@ -151,6 +153,12 @@ async function launch() {
     { type: 'separator' }, { label: 'Quit Folio', click: () => app.quit() }
   ]));
   tray.on('double-click', showWindow);
+  backend = await openBackend(data);
+  watchBackend();
+  session.defaultSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    if (new URL(details.url).origin === backend.origin) details.requestHeaders['X-Folio-Desktop-Token'] = backend.token;
+    callback({ requestHeaders: details.requestHeaders });
+  });
   await waitForBackend(backend);
   registerActions();
   await window.loadURL(backend.origin);
@@ -165,14 +173,9 @@ else {
     if (restoring) {event.preventDefault();return;}
     if (quitting) return;
     quitting = true; clearInterval(timer);
-    if (!backend || backend.child.exitCode !== null) { tray?.destroy(); return; }
     event.preventDefault();
-    const exited = new Promise(resolve => backend.child.once('exit', resolve));
-    request('/api/desktop/shutdown', { method: 'POST' }).catch(() => {}).then(async () => {
-      await Promise.race([exited, new Promise(resolve => setTimeout(resolve, 12000))]);
-      if (backend.child.exitCode === null) backend.child.kill();
-      tray?.destroy(); app.exit();
-    });
+    stopBackend().catch(error => console.error('Workspace shutdown:', error.message))
+      .finally(() => { tray?.destroy(); app.exit(); });
   });
   app.on('window-all-closed', () => { /* The tray owns the running application. */ });
 }

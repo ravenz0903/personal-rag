@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "runtime": "llama.cpp",
+  "revision": "b11429",
+  "platform": "win32-x64",
+  "artifacts": [
+    {
+      "backend": "cpu",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11429/llama-b11429-bin-win-cpu-x64.zip",
+      "bytes": 19398918,
+      "sha256": "1283323272b04cd07905816a597a0da810918102de958f4ff6f7bbaa70ed2efe"
+    },
+    {
+      "backend": "vulkan",
+      "url": "https://github.com/ggml-org/llama.cpp/releases/download/b11429/llama-b11429-bin-win-vulkan-x64.zip",
+      "bytes": 33337769,
+      "sha256": "1bfe78ad9168b79fa02bf67f6af9f5e17a966d824d77238517f7bef12ac73b36"
+    }
+  ]
+}

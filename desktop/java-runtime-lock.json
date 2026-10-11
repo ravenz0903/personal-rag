@@ -1,0 +1,16 @@
+{
+  "vendor": "Eclipse Temurin",
+  "release": "jdk-21.0.12.1+1",
+  "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip",
+  "bytes": 48999141,
+  "sha256": "d35f31e712f0fcf6ac5a093edc90204fbff22f720ba3950bd09d331d5e621636",
+  "archive": "OpenJDK21U-jre_x64_windows_hotspot_21.0.12.1_1.zip",
+  "license": "GPL-2.0-with-classpath-exception",
+  "source": "https://github.com/adoptium/temurin21-binaries/releases/tag/jdk-21.0.12.1%2B1",
+  "sourceArchive": {
+    "archive": "OpenJDK21U-jdk-sources_21.0.12.1_1.tar.gz",
+    "bytes": 115126841,
+    "sha256": "573057d03584ae793fb7ec9a14c76d826d9187a53efeefd99da47403a5308234",
+    "url": "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk-sources_21.0.12.1_1.tar.gz"
+  }
+}

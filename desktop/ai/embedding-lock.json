@@ -1,0 +1,13 @@
+{
+  "version": 1,
+  "repo": "nomic-ai/nomic-embed-text-v1.5-GGUF",
+  "revision": "0188c9bf409793f810680a5a431e7b899c46104c",
+  "file": "nomic-embed-text-v1.5.Q8_0.gguf",
+  "bytes": 146146432,
+  "sha256": "3e24342164b3d94991ba9692fdc0dd08e3fd7362e0aacc396a9a5c54a544c3b7",
+  "license": "Apache-2.0",
+  "dimensions": 768,
+  "embeddingSpace": "nomic-v1.5:0188c9bf:Q8_0:768:search-v1",
+  "documentPrefix": "search_document: ",
+  "queryPrefix": "search_query: "
+}

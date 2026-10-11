@@ -4,10 +4,12 @@ import com.tracker.rag.domain.DomainScope;
 import org.springframework.context.annotation.Primary;
 import org.springframework.context.annotation.Profile;
 import org.springframework.stereotype.Service;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import java.util.function.Consumer;
 
 /** Desktop mode cannot call a provider even if an old environment contains a key. */
 @Service @Primary @Profile("desktop")
+@ConditionalOnProperty(name = "ai.provider", havingValue = "disabled", matchIfMissing = true)
 public class DeferredAiClient implements AiClient {
     public String embeddingSpace() { return "ai-postponed"; }
     private AiServiceException unavailable() { return new AiServiceException(503, "AI is postponed. Your local records work without it."); }

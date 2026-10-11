@@ -45,3 +45,23 @@ desktop/node_modules/
 desktop/resources/
 desktop/release/
 desktop/*-build.log
+*.gguf
+__pycache__/
+*.py[cod]
+
+# Generated AI assets and private training inputs; keep scripts and small locks.
+training/data/
+training/outputs/
+training/checkpoints/
+models/
+adapters/
+checkpoints/
+*.safetensors
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.exe
+*.msi
+*.mv.db
+*.trace.db

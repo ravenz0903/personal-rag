@@ -19,7 +19,7 @@ function backendArgs(files, port) {
   return ['-Xms64m', '-Xmx384m', '-jar', files.jar, '--spring.profiles.active=desktop', `--server.port=${port}`,
     `--spring.web.resources.static-locations=${new URL('file:///' + files.frontend.replaceAll('\\', '/') + '/').href}`];
 }
-function startBackend(resources, userData) {
+function startBackend(resources, userData, localAi = {}) {
   return availablePort().then(port => {
     const files = paths(resources, userData);
     for (const required of [files.java, files.jar, path.join(files.frontend, 'index.html')])
@@ -30,7 +30,7 @@ function startBackend(resources, userData) {
     const child = spawn(files.java, backendArgs(files, port), {
       cwd: userData, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...environment, FOLIO_DESKTOP_TOKEN: token, FOLIO_PARENT_PID: String(process.pid), GEMINI_API_KEY: '',
-        SPRING_PROFILES_ACTIVE: 'desktop', FOLIO_DATA_DIR: files.data.replaceAll('\\', '/') }
+        SPRING_PROFILES_ACTIVE: 'desktop', FOLIO_DATA_DIR: files.data.replaceAll('\\', '/'), ...localAi }
     });
     const log = fs.createWriteStream(path.join(userData, 'backend.log'), { flags: 'w' });
     child.stdout.pipe(log, { end: false }); child.stderr.pipe(log, { end: false });

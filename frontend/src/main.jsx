@@ -6,6 +6,7 @@ import Calendar, { CalendarSidebar } from './Calendar.jsx';
 import ReminderSettings, { disableDeviceReminders } from './ReminderSettings.jsx';
 import TaskSearch from './TaskSearch.jsx';
 import TaskWorkspace from './TaskWorkspace';
+import TaskParentSelect from './TaskParentSelect';
 import CalendarWorkspace from './CalendarWorkspace';
 const NotesWorkspace = lazy(() => import('./NotesWorkspace'));
 import WorkspaceSearch from './WorkspaceSearch';
@@ -15,6 +16,8 @@ import TodayAgenda from './TodayAgenda';
 import { wallTime, toInstant, put } from './localTime';
 import './local.css';
 import DesktopSettings from './DesktopSettings.jsx';
+import AssistantWorkspace from './AssistantWorkspace.jsx';
+import DocumentsWorkspace from './DocumentsWorkspace.jsx';
 import { dayKey, localDay } from './calendar';
 import './style.css';
 import './dark.css';
@@ -36,6 +39,8 @@ function App() {
   const [messages, setMessages] = useState([]), [question, setQuestion] = useState(''), [asking, setAsking] = useState(false);
   const [aiDomain, setAiDomain] = useState('ACADEMICS'), [historyRecords, setHistory] = useState([]);
   const [assistantMode, setAssistantMode] = useState('notes');
+  const [documentIndexes, setDocumentIndexes] = useState({}), [indexing, setIndexing] = useState(null);
+  const indexAbort = useRef(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [profile, setProfile] = useState({ displayName: 'Your workspace', timezone: 'Asia/Kolkata', weekStart: 0, remindersEnabled: true }), [selectedRecord, setSelectedRecord] = useState(null), [workspaceKey, setWorkspaceKey] = useState('local');
   const localInput = value => wallTime(value, profile.timezone);
@@ -76,12 +81,27 @@ function App() {
   }, [boot]);
   useEffect(() => { if (canEnter) refresh(); }, [canEnter, domain, page]);
   useEffect(() => { chatBottom.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' }); }, [messages]);
-  useEffect(() => () => abort.current?.abort(), []);
+  useEffect(() => () => {
+    for (const current of [abort.current, indexAbort.current]) {
+      current?.abort();
+      if (current?.requestId) api(`/api/assistant/actions/cancel/${current.requestId}`, { method: 'POST' }).catch(() => {});
+    }
+  }, []);
+  useEffect(() => {
+    if (!modal) return;
+    const opener = document.activeElement;
+    const dialog = document.querySelector('.modal-card');
+    (dialog?.querySelector('input:not([type="hidden"]):not(:disabled),textarea:not(:disabled),select:not(:disabled)') || dialog?.querySelector('button:not(:disabled)'))?.focus();
+    return () => { if (opener?.isConnected) opener.focus(); };
+  }, [!!modal]);
+  useEffect(() => {
+    if (card) document.querySelector('.modal-actions .primary')?.focus();
+  }, [card]);
   useEffect(() => {
     const key = e => {
       if (e.key === 'Escape' && !busy) { discard(); setMenu(false); }
       if (e.key === 'Tab' && modal) {
-        const elements = [...document.querySelectorAll('.modal-card button:not(:disabled), .modal-card input:not([type="hidden"]), .modal-card select, .modal-card textarea')];
+        const elements = [...document.querySelectorAll('.modal-card button:not(:disabled), .modal-card input:not([type="hidden"]):not(:disabled), .modal-card select:not(:disabled), .modal-card textarea:not(:disabled)')];
         if (!elements.length) return;
         const first = elements[0], last = elements.at(-1);
         if (e.shiftKey && (document.activeElement === first || !elements.includes(document.activeElement))) { e.preventDefault(); last.focus(); }
@@ -99,15 +119,17 @@ function App() {
     setLoading(true); setError('');
     const selected = domain === 'ALL' ? ['ACADEMICS', 'CAREER'] : [domain];
     try {
-      const [t, h, c, a, d] = await Promise.all([
+      const [t, h, c, a, d, indexes] = await Promise.all([
         boot?.config.desktopMode ? api(`/api/local/tasks?domain=${domain}`) : Promise.all(selected.map(scope => api(`/api/tracker/tasks?domain=${scope}`))).then(groups => groups.flat()),
         selected.includes('PERSONAL') ? api('/api/tracker/habits?domain=PERSONAL') : Promise.resolve([]),
         selected.includes('CAREER') ? api('/api/tracker/career?domain=CAREER') : Promise.resolve([]),
         selected.includes('ACADEMICS') ? api('/api/workspace/courses') : Promise.resolve([]),
         api(`/api/ingest/documents${domain === 'ALL' ? '' : `?domain=${domain}`}`),
+        boot?.config.desktopMode && boot.config.aiEnabled ? api(`/api/assistant/documents/status?domain=${domain}`) : Promise.resolve([]),
       ]);
       if (version !== loadVersion.current) return;
       setTasks(t); setHabits(h); setCareer(c); setCourses(a); setDocuments(d);
+      setDocumentIndexes(Object.fromEntries(indexes.map(item => [item.documentId, item.chunks])));
       if (page === 'Settings') setHistory(await api(`/api/workspace/events?domain=${domain === 'ALL' ? 'ACADEMICS' : domain}`));
     } catch (e) { if (version === loadVersion.current) setError(e.message); }
     finally { if (version === loadVersion.current) setLoading(false); }
@@ -163,7 +185,7 @@ function App() {
       if (/\.(md|markdown)$/i.test(file.name)) result = await post('/api/ingest/markdown', { path: file.name, content: await file.text(), domain });
       else if (/\.pdf$/i.test(file.name)) { const body = new FormData(); body.append('file', file); body.append('domain', domain); result = await api('/api/ingest/upload', { method: 'POST', body }); }
       else throw new Error('Choose a PDF or Markdown file.');
-      setNotice(result.status === 'SKIPPED' ? 'This document is already up to date.' : boot.config.aiEnabled === false || domain === 'PERSONAL' ? 'Document stored locally. No content was sent to AI.' : 'Document added to your searchable library.');
+      setNotice(result.status === 'SKIPPED' ? 'This document is already up to date.' : boot.config.desktopMode ? 'Document stored locally.' : boot.config.aiEnabled === false || domain === 'PERSONAL' ? 'Document stored privately.' : 'Document added to your searchable library.');
     });
   }
   async function download(doc) {
@@ -172,23 +194,51 @@ function App() {
       const url = URL.createObjectURL(blob), anchor = document.createElement('a'); anchor.href = url; anchor.download = doc.fileName; anchor.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
     });
   }
-  async function ask(e) {
-    e.preventDefault(); const query = question.trim(); if (!query || asking) return;
-    const selected = aiDomain; setQuestion(''); setAsking(true); setError('');
-    const id = crypto.randomUUID(); setMessages(previous => [...previous, { role: 'user', text: query }, { id, role: 'assistant', text: '', citations: [], domain: selected }]);
+  async function indexDocument(doc) {
+    if (indexing) return;
+    const controller = new AbortController(); controller.requestId = crypto.randomUUID(); indexAbort.current = controller;
+    setIndexing(doc.id); setError('');
+    try {
+      await api('/api/assistant/documents/index', { method: 'POST', signal: controller.signal, body: JSON.stringify({ documentId: doc.id, domain: doc.domain, requestId: controller.requestId }) });
+      setNotice('Document is ready for local search.'); await refresh();
+    } catch (error) { if (error.name === 'AbortError') setNotice('Indexing stopped.'); else setError(error.message); }
+    finally { setIndexing(null); indexAbort.current = null; }
+  }
+  function cancelIndexing() {
+    const current = indexAbort.current; current?.abort();
+    if (current?.requestId) post(`/api/assistant/cancel/${current.requestId}`).catch(() => {});
+  }
+  function changeAssistantArea(next) { setMessages([]); setQuestion(''); setAiDomain(next); }
+  async function ask(e, choice, retry) {
+    e?.preventDefault(); const query = (retry?.input || question).trim(); if (!query || asking) return;
+    const selected = retry?.domain || aiDomain; setQuestion(''); setAsking(true); setError('');
+    const id = crypto.randomUUID(); setMessages(previous => [...previous, { role: 'user', text: choice ? `Selected task: ${choice.title}` : query }, { id, role: 'assistant', text: '', citations: [], domain: selected }]);
     abort.current = new AbortController();
+    abort.current.requestId = id;
     try {
       if (assistantMode === 'actions') {
-        const draft = await post('/api/assistant/actions', { input: query, domain: selected });
-        setMessages(previous => previous.map(message => message.id === id ? { ...message, text: draft.summary + '. Review the draft before saving.' } : message));
-        setCard(draft); setModal({ type: draft.entityType });
+        const response = await api('/api/assistant/actions', { method: 'POST', signal: abort.current.signal, body: JSON.stringify({ input: query, domain: selected,
+          ...(boot.config.desktopMode ? { requestId: id, ...(choice ? { selectedTaskId: choice.id, expectedVersion: choice.version } : {}) } : {}) }) });
+        const draft = boot.config.desktopMode ? response.preview : response;
+        setMessages(previous => previous.map(message => message.id === id ? { ...message,
+          text: draft ? draft.summary + '. Review the draft before saving.' : response.message,
+          choices: response.choices, input: query } : message));
+        if (draft) { setCard(draft); setModal({ type: draft.entityType }); }
         return;
       }
       await streamChat(query, selected, (event, data) => {
-        setMessages(previous => previous.map(message => message.id !== id ? message : event === 'citations' ? { ...message, citations: data } : ['chunk', 'message'].includes(event) ? { ...message, text: message.text + data } : message));
-      }, abort.current.signal);
-    } catch (e) { if (e.name !== 'AbortError') { setError(e.message); setMessages(previous => previous.map(message => message.id === id ? { ...message, failure: e.message } : message)); } }
+        setMessages(previous => previous.map(message => message.id !== id ? message : event === 'citations' ? { ...message, citations: data } : event === 'status' ? { ...message, status: data } : ['chunk', 'message'].includes(event) ? { ...message, text: message.text + data } : message));
+      }, abort.current.signal, boot.config.desktopMode ? id : undefined);
+    } catch (e) {
+      if (e.name === 'AbortError') setMessages(previous => previous.map(message => message.id === id ? { ...message, text: message.text ? message.text + '\n\nStopped.' : 'Stopped.', choices: [] } : message));
+      else { setError(e.message); setMessages(previous => previous.map(message => message.id === id ? { ...message, failure: e.message } : message)); }
+    }
     finally { setAsking(false); }
+  }
+  function stopAnswer() {
+    const current = abort.current; current?.abort();
+    if (boot.config.desktopMode && current?.requestId)
+      post(`/api/assistant/cancel/${current.requestId}`).catch(() => {});
   }
 
   if (!boot || bootError) return <div className="gate"><div className="brand-symbol">f</div><h1>Your space, thoughtfully organized.</h1><p>{bootError || 'Starting your workspace…'}</p>{bootError && <button className="primary" onClick={start}>Try again</button>}</div>;
@@ -229,7 +279,7 @@ function App() {
         {boot.config.desktopMode && page === 'Notes' && <Suspense fallback={<p role="status">Opening notes…</p>}><NotesWorkspace domain={domain} workspaceKey={workspaceKey} selectedId={selectedRecord?.kind === 'note' ? selectedRecord.id : null}/></Suspense>}
         {boot.config.desktopMode && page === 'Progress' && <ProgressWorkspace domain={domain} courses={courses}/>}
         {boot.config.desktopMode && page === 'Today' && <TodayAgenda domain={domain} timezone={profile.timezone} tasks={tasks} courses={courses} habits={habits} busy={busy} onLog={id => action(() => post(`/api/tracker/habits/${id}/log`), 'Today is logged.')} onEdit={task => setModal({ type: 'TASK_UPDATE', task })} onCalendar={id => { setPage('Calendar'); setSelectedRecord(id ? { id, kind: 'event' } : null); }}/>}
-        {boot.config.desktopMode && ['Academics', 'Personal', 'Career'].includes(page) && <RecordManager key={page} kind={page === 'Academics' ? 'course' : page === 'Personal' ? 'habit' : 'application'} onRefresh={refresh} selectedId={selectedRecord?.id}/>}
+        {boot.config.desktopMode && ['Academics', 'Personal', 'Career'].includes(page) && <RecordManager key={page} kind={page === 'Academics' ? 'course' : page === 'Personal' ? 'habit' : 'application'} onRefresh={refresh} selectedId={selectedRecord?.id} onSelectionHandled={() => setSelectedRecord(null)}/>}
         {page === 'Today' && <><div className="welcome-callout"><Sun size={23}/><div><strong>{new Date().toLocaleDateString(undefined, { timeZone: profile.timezone, weekday: 'long', month: 'long', day: 'numeric' })}</strong><p>You don't have to do everything. Start with one thing that matters.</p></div></div><div className="stats-grid"><Stat label="Open tasks" value={pending.length} note="Room to make progress"/><Stat label="Courses" value={courses.length} note="Keep learning"/><Stat label="Applications" value={career.length} note="Your next chapter"/></div></>}
 
         {(page === 'Today' || page === 'Tasks' && !boot.config.desktopMode) && <section><SectionTitle icon={LayoutList} title={page === 'Today' ? 'On your mind' : 'All tasks'} count={visibleTasks.length}/><div className="table-toolbar"><span className="view-name"><LayoutList size={14}/>List view</span><label className="filter-input"><Search size={14}/><input id="task-search" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Filter tasks…" aria-label="Filter tasks"/></label></div>{visibleTasks.length ? <div className="task-table"><div className="table-head"><span>Task</span><span>Area</span><span>Priority</span><span>Due</span></div>{visibleTasks.map(task => <div key={task.id} className={`task-row ${task.status === 'COMPLETED' ? 'completed' : ''}`}><div className="task-title"><button aria-label={`${task.status === 'COMPLETED' ? 'Reopen' : 'Complete'} ${task.title}`} className="task-check" disabled={busy} onClick={() => action(() => boot.config.desktopMode ? put(api, `/api/local/tasks/${task.id}`, { domain: task.domain, version: task.version, status: task.status === 'COMPLETED' ? 'PENDING' : 'COMPLETED' }) : post(`/api/tracker/tasks/${task.id}/toggle`), 'Task updated.')} >{task.status === 'COMPLETED' ? <Check size={13}/> : null}</button><button className="task-edit" aria-label={`Edit ${task.title}`} onClick={() => { setError(''); setModal({ type: 'TASK_UPDATE', task }); }}>{task.title}</button></div><span className={`tag ${task.domain.toLowerCase()}`}>{domainNames[task.domain]}</span><span className={`priority ${task.priority.toLowerCase()}`}>{pretty(task.priority)}</span><span className="due-date">{dateText(task.dueDate)}</span></div>)}</div> : <Empty icon={CheckCheck} title={loading ? 'Loading your tasks…' : 'A little breathing room.'} text="Add a task to give your next step a home." action={() => openForm('TASK')} label="Add your first task"/>}<button className="add-row" onClick={() => openForm('TASK')}><Plus size={15}/>New task</button></section>}
@@ -240,9 +290,9 @@ function App() {
 
         {page === 'Career' && <section><SectionTitle icon={BriefcaseBusiness} title="Your next chapter" count={career.length}/>{career.length ? <div className="career-list">{career.map(application => <article className="application-row" key={application.id}><span className="company-mark">{application.company[0].toUpperCase()}</span><div><h3>{application.company}</h3><p>{application.position}</p></div><select aria-label={`Status for ${application.company}`} disabled={busy} value={application.status} onChange={e => action(() => boot.config.desktopMode ? put(api, `/api/local/records/application/${application.id}`, { ...application, status: e.target.value }) : post(`/api/workspace/career/${application.id}/status`, { status: e.target.value }), 'Application stage updated.')}>{statuses.map(status => <option key={status} value={status}>{pretty(status)}</option>)}</select></article>)}</div> : <Empty icon={BriefcaseBusiness} title="Keep the possibilities together." text="Track an opportunity from your wishlist to your next offer." action={() => openForm('CAREER')} label="Add an application"/>}</section>}
 
-        {page === 'Documents' && <section><div className="library-intro"><div><h3>Your personal library</h3><p>PDF & Markdown · up to 5 MB</p></div><button className="primary" disabled={busy || domain === 'ALL'} onClick={() => fileInput.current.click()}><Upload size={15}/>{busy ? 'Processing…' : 'Add document'}</button><input ref={fileInput} hidden type="file" accept=".pdf,.md,.markdown" onChange={upload}/></div>{domain === 'ALL' && <p className="hint">Choose an area above to upload a document. Personal stays outside this view.</p>}{documents.length ? <div className="document-grid">{documents.map(doc => <article className="document-card" key={doc.id}><div className="document-preview"><FileText size={34} strokeWidth={1}/><span>{doc.contentType === 'application/pdf' ? 'PDF' : 'MD'}</span></div><div className="document-info"><h3>{doc.fileName}</h3><span className={`tag ${doc.domain.toLowerCase()}`}>{domainNames[doc.domain]}</span><p>{boot.config.aiEnabled === false ? 'Stored original · AI postponed' : doc.domain === 'PERSONAL' ? 'Private storage · AI excluded' : `${doc.chunkCount} searchable passages`} · {dateText(doc.updatedAt)}</p><button className="text-button" disabled={busy || !doc.storagePath} onClick={() => download(doc)}><Download size={13}/>Download original</button></div></article>)}</div> : <Empty icon={FolderOpen} title="Give your notes a home." text="Choose an area, then upload notes to build your library."/>}</section>}
+        {page === 'Documents' && <DocumentsWorkspace documents={documents} domain={domain} config={boot.config} busy={busy} inputRef={fileInput} onUpload={upload} onDownload={download} indexes={documentIndexes} indexing={indexing} onIndex={indexDocument} onCancelIndex={cancelIndexing} dateText={dateText}/>}
 
-        {page === 'Assistant' && boot.config.aiEnabled !== false && <section className="assistant-section"><div className="assistant-scope"><select aria-label="Assistant mode" value={assistantMode} disabled={asking} onChange={e => setAssistantMode(e.target.value)}><option value="notes">Ask my notes</option><option value="actions">Tasks & calendar</option></select><span><LockKeyhole size={13}/> Area</span><select aria-label="AI document area" value={aiDomain} disabled={asking} onChange={e => setAiDomain(e.target.value)}><option value="ACADEMICS">Academics</option><option value="CAREER">Career</option></select><span className="quota-label">Free-tier AI</span></div>{!boot.config.aiConfigured && <div className="privacy-callout"><Sparkles size={18}/><p>Connect your Gemini free-tier key in the backend settings to enable answers. Your records work without it.</p></div>}<div className="conversation">{messages.length ? messages.map((message, index) => <div className={`chat-message ${message.role}`} key={message.id || index}><div className="message-label">{message.role === 'user' ? 'You' : <><Sparkles size={13}/>Folio · {domainNames[message.domain]}</>}</div><div className="message-text">{message.text || (message.failure ? '' : 'Finding the right passages…')}</div>{message.failure && <p className="message-error">{message.failure}</p>}{message.citations?.length > 0 && <div className="citations">{message.citations.map((citation, i) => <details key={i}><summary><FileText size={12}/>[S{i + 1}] {citation.documentId}{citation.pageNumber ? ` · p. ${citation.pageNumber}` : ''}</summary>{citation.headingPath && <strong>{citation.headingPath}</strong>}<p>{citation.content}</p></details>)}</div>}</div>) : <div className="assistant-empty"><span className="assistant-star"><Sparkles size={30} strokeWidth={1.4}/></span><h2>{assistantMode === 'actions' ? 'A little help moving things forward.' : 'A conversation with your notes.'}</h2><p>{assistantMode === 'actions' ? 'Create tasks, move deadlines, and schedule reminders. Review every change before it is saved.' : 'Ask a question. Get an answer grounded in your documents, with sources you can check.'}</p><div className="suggestions">{(assistantMode === 'actions' ? ['Add a revision task for tomorrow at 6 pm', 'Move my revision task to Friday at 5 pm', 'Remind me about my revision task tomorrow at 9 am'] : ['What are the key ideas in my notes?', 'Explain this topic with a simple example', 'Compare the approaches in my documents']).map(text => <button key={text} onClick={() => setQuestion(text)}>{text}<ArrowUpRight size={15}/></button>)}</div></div>}<div ref={chatBottom}/></div><form className="chat-composer" onSubmit={ask}><textarea rows={2} value={question} onChange={e => setQuestion(e.target.value)} placeholder={assistantMode === 'actions' ? 'Add a task, change a deadline, or set a reminder…' : 'Ask something from your notes…'} maxLength={2000} aria-label="Question" onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(e); } }}/>{asking ? <button type="button" className="send-button" aria-label="Stop answering" onClick={() => abort.current?.abort()}><X size={18}/></button> : <button className="send-button" aria-label="Ask question" disabled={!question.trim() || !boot.config.aiConfigured}><ArrowUp size={18}/></button>}</form><p className="assistant-footnote">{assistantMode === 'actions' ? 'Check the proposed task and times before approving. Enable device reminders in Settings.' : 'Answers can be mistaken. Check the cited passages.'} Free-tier Gemini content may be used to improve Google's products.</p></section>}
+        {page === 'Assistant' && boot.config.aiEnabled !== false && <AssistantWorkspace config={boot.config} mode={assistantMode} onMode={value => { setAssistantMode(value); setMessages([]); }} domain={aiDomain} onDomain={changeAssistantArea} messages={messages} question={question} onQuestion={setQuestion} asking={asking} onAsk={ask} onStop={stopAnswer} chatBottom={chatBottom}/>}
 
         {page === 'Settings' && <section>{window.folioDesktop ? <DesktopSettings profile={profile} onProfile={async prefs => { setProfile(await put(api, '/api/local/settings', prefs)); }}/> : <ReminderSettings/>}{!boot.config.desktopMode && <div className="settings-list"><Setting title="Private access" text={boot.config.authEnabled ? 'Only the configured workspace owner can access this backend.' : 'Development mode. Sign-in is required for cloud deployment.'}/><Setting title="Personal AI boundary" text="Personal documents are stored privately and excluded from cloud AI. Personal capture uses local rules."/><Setting title="Free services" text="No paid fallback. Gemini quotas stop AI requests; tracker records remain usable."/><Setting title="Storage" text="Cloud uses PostgreSQL and private document storage. Local development uses persistent files."/></div>}<SectionTitle icon={Undo2} title="Recent changes"/><div className="history-domain"><select aria-label="History area" value={domain === 'ALL' ? 'ACADEMICS' : domain} onChange={e => setDomain(e.target.value)}>{domains.filter(d => d !== 'ALL').map(d => <option key={d} value={d}>{domainNames[d]}</option>)}</select></div>{history.length ? history.map(event => <div className="history-row" key={event.id}><div><strong>{pretty(event.action)} · {pretty(event.entityType)} · {eventLabel(event)}</strong><p>{new Date(event.timestamp).toLocaleString()}</p></div>{!event.undone && event.action !== 'ROLLBACK' && <button className="text-button" disabled={busy} onClick={() => action(() => post(`/api/capture/rollback/${event.id}`), 'Change undone.')}><Undo2 size={13}/>Undo</button>}</div>) : <p className="hint">Your changes will appear here.</p>}</section>}
         {page === 'Today' && <div className="bottom-links"><button onClick={() => navigate('Documents')}><FolderOpen size={18}/><div><strong>Your library</strong><p>Keep your notes close.</p></div><ArrowUpRight size={17}/></button>{boot.config.aiEnabled !== false && <button onClick={() => navigate('Assistant')}><Sparkles size={18}/><div><strong>Ask your notes</strong><p>Make a little more sense of things.</p></div><ArrowUpRight size={17}/></button>}</div>}
@@ -251,15 +301,15 @@ function App() {
     </main>
     {searchOpen && boot.config.desktopMode && <WorkspaceSearch onClose={() => setSearchOpen(false)} onSelect={openRecord}/>}
     {searchOpen && !boot.config.desktopMode && <TaskSearch onClose={() => setSearchOpen(false)} onSelect={task => { setSearchOpen(false); setError(''); setModal({ type: 'TASK_UPDATE', task }); }}/>}
-    {modal && <div className="modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) discard(); }}><div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-top"><span className="tag academics">{card ? 'REVIEW BEFORE SAVING' : 'MAKE IT YOURS'}</span><button className="icon-button" aria-label="Close dialog" disabled={busy} onClick={discard}><X size={19}/></button></div><h2 id="modal-title">{card ? 'Does this look right?' : { TASK: 'A new task', TASK_UPDATE: 'Edit task', HABIT: 'A small ritual', CAREER: 'A new opportunity', COURSE: 'A new course', CATEGORY: 'A grading category', ASSESSMENT: 'A new assessment', SCORE: 'Record your score', CAPTURE: 'Get it out of your head.' }[modal.type]}</h2>{error && <div className="alert" role="alert">{error}</div>}{card ? <><p className="modal-description">{card.summary}</p><dl className="review-fields">{Object.entries(card.proposedPayload).filter(([key]) => !['expectedUpdatedAt', 'expectedVersion', 'taskId'].includes(key)).map(([key, value]) => <div key={key}><dt>{pretty(key.replace(/([A-Z])/g, ' $1'))}</dt><dd>{value === '' ? 'None' : key === 'parentId' ? tasks.find(t => t.id === value)?.title || 'Selected parent' : ['dueDate', 'remindAt'].includes(key) ? new Date(value).toLocaleString() : String(value)}</dd></div>)}</dl><p className="hint">This preview expires in 15 minutes. Nothing is saved until you approve.</p><div className="modal-actions"><button className="secondary" disabled={busy} onClick={discard}>Discard</button><button className="primary" disabled={busy} onClick={commit}><Check size={15}/>{busy ? 'Saving…' : 'Approve & save'}</button></div></> : <form onSubmit={submitForm}>
+    {modal && <div className="modal-overlay" onMouseDown={e => { if (e.target === e.currentTarget && !busy) discard(); }}><div className="modal-card" role="dialog" aria-modal="true" aria-labelledby="modal-title"><div className="modal-top"><span className="tag academics">{card ? 'REVIEW BEFORE SAVING' : 'MAKE IT YOURS'}</span><button className="icon-button" aria-label="Close dialog" disabled={busy} onClick={discard}><X size={19}/></button></div><h2 id="modal-title">{card ? 'Does this look right?' : { TASK: 'A new task', TASK_UPDATE: 'Edit task', HABIT: 'A small ritual', CAREER: 'A new opportunity', COURSE: 'A new course', CATEGORY: 'A grading category', ASSESSMENT: 'A new assessment', SCORE: 'Record your score', CAPTURE: 'Get it out of your head.' }[modal.type]}</h2>{error && <div className="alert" role="alert">{error}</div>}{card ? <><p className="modal-description">{card.summary}</p><dl className="review-fields">{Object.entries(card.proposedPayload).filter(([key]) => !['expectedUpdatedAt', 'expectedVersion', 'taskId'].includes(key)).map(([key, value]) => <div key={key}><dt>{pretty(key.replace(/([A-Z])/g, ' $1'))}</dt><dd>{value === '' ? 'None' : key === 'parentId' ? tasks.find(t => t.id === value)?.title || 'Selected parent' : ['dueDate', 'remindAt', 'startAt', 'endAt'].includes(key) ? new Date(value).toLocaleString(undefined, boot.config.desktopMode ? { timeZone: profile.timezone, timeZoneName: 'short' } : undefined) : String(value)}</dd></div>)}</dl><p className="hint">This preview expires in 15 minutes. Nothing is saved until you approve.</p><div className="modal-actions"><button className="secondary" disabled={busy} onClick={discard}>Discard</button><button className="primary" disabled={busy} onClick={commit}><Check size={15}/>{busy ? 'Saving…' : 'Approve & save'}</button></div></> : <form onSubmit={submitForm}>
       {['TASK', 'TASK_UPDATE', 'CAPTURE'].includes(modal.type) && <Field label="Area"><select name="domain" disabled={modal.type === 'TASK_UPDATE'} defaultValue={modal.task?.domain || modal.parent?.domain || (domain === 'ALL' ? 'ACADEMICS' : domain)}>{domains.filter(d => d !== 'ALL').map(d => <option key={d} value={d}>{domainNames[d]}</option>)}</select></Field>}
       {['HABIT', 'CAREER', 'ASSESSMENT'].includes(modal.type) && <input type="hidden" name="domain" value={modal.type === 'HABIT' ? 'PERSONAL' : modal.type === 'CAREER' ? 'CAREER' : 'ACADEMICS'}/>}
-      {['TASK', 'TASK_UPDATE', 'ASSESSMENT'].includes(modal.type) && <Field label="What needs doing?"><input name="title" defaultValue={modal.task?.title || ''} required maxLength={255} autoFocus placeholder="Give it a clear name"/></Field>}
+      {['TASK', 'TASK_UPDATE', 'ASSESSMENT'].includes(modal.type) && <Field label="What needs doing?"><input name="title" defaultValue={modal.task?.title || ''} required maxLength={255} placeholder="Give it a clear name"/></Field>}
       {['TASK', 'TASK_UPDATE'].includes(modal.type) && <Field label="Priority"><select name="priority" defaultValue={modal.task?.priority || 'MEDIUM'}><option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>URGENT</option></select></Field>}
       {['TASK', 'TASK_UPDATE', 'ASSESSMENT'].includes(modal.type) && <Field label="Due date · optional"><input name="dueDate" type="datetime-local" defaultValue={modal.dueDate || localInput(modal.task?.dueDate)}/></Field>}
       {modal.type === 'TASK_UPDATE' && <><input type="hidden" name="domain" value={modal.task.domain}/><Field label="Status"><select name="status" defaultValue={modal.task.status}>{['PENDING', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'].map(status => <option key={status} value={status}>{pretty(status)}</option>)}</select></Field></>}
       {['TASK', 'TASK_UPDATE'].includes(modal.type) && <><Field label="Description · optional"><textarea name="description" maxLength={2000} rows={2} defaultValue={modal.task?.description || ''}/></Field><Field label="Remind me · optional"><input name="remindAt" type="datetime-local" defaultValue={localInput(modal.task?.remindAt)}/></Field><p className="hint">Times use {profile.timezone}. Keep Folio running in the tray for reminders.</p></>}
-      {boot.config.desktopMode && ['TASK','TASK_UPDATE'].includes(modal.type) && <><Field label="Tags · comma separated"><input name="tags" maxLength={1200} defaultValue={(modal.task?.tags || []).join(', ')} list="task-tags"/><datalist id="task-tags">{[...new Set(tasks.flatMap(t => t.tags || []))].map(tag => <option key={tag} value={tag}/>)}</datalist></Field><Field label="Repeat after completion"><select name="recurrence" defaultValue={modal.task?.recurrence || 'NONE'}>{['NONE','DAILY','WEEKDAYS','WEEKLY','MONTHLY'].map(v => <option key={v}>{v}</option>)}</select></Field><Field label="Parent task · optional"><select name="parentId" defaultValue={modal.parent?.id || modal.task?.parentId || ''}><option value="">None</option>{tasks.filter(t => !t.archived && !t.parentId && t.id !== modal.task?.id).map(t => <option key={t.id} value={t.id}>{t.title} · {t.domain.toLowerCase()}</option>)}</select></Field></>}
+      {boot.config.desktopMode && ['TASK','TASK_UPDATE'].includes(modal.type) && <><Field label="Tags · comma separated"><input name="tags" maxLength={1200} defaultValue={(modal.task?.tags || []).join(', ')} list="task-tags"/><datalist id="task-tags">{[...new Set(tasks.flatMap(t => t.tags || []))].map(tag => <option key={tag} value={tag}/>)}</datalist></Field><Field label="Repeat after completion"><select name="recurrence" defaultValue={modal.task?.recurrence || 'NONE'}>{['NONE','DAILY','WEEKDAYS','WEEKLY','MONTHLY'].map(v => <option key={v}>{v}</option>)}</select></Field><Field label="Parent task · optional"><TaskParentSelect key={modal.task?.id || modal.parent?.id || 'new'} tasks={tasks} task={modal.task} parent={modal.parent}/></Field></>}
       {modal.type === 'HABIT' && <><Field label="Habit"><input name="name" required maxLength={255} autoFocus placeholder="Read for 20 minutes"/></Field><Field label="Frequency"><select name="frequency"><option value="DAILY">Every day</option><option value="WEEKDAYS">Weekdays</option><option value="WEEKENDS">Weekends</option></select></Field></>}
       {modal.type === 'CAREER' && <><Field label="Company"><input name="company" required maxLength={255} autoFocus/></Field><Field label="Role"><input name="position" required maxLength={255}/></Field><Field label="Stage"><select name="status">{statuses.map(status => <option key={status} value={status}>{pretty(status)}</option>)}</select></Field></>}
       {modal.type === 'COURSE' && <><Field label="Course code"><input name="code" required maxLength={32} autoFocus placeholder="CS310"/></Field><Field label="Course name"><input name="name" required maxLength={255} placeholder="Algorithms"/></Field><div className="form-two"><Field label="Term"><input name="term" required maxLength={64} placeholder="Fall 2026"/></Field><Field label="Target grade (%)"><input name="targetGrade" type="number" step="0.01" min="0" max="100" defaultValue="90" required/></Field></div></>}

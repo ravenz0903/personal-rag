@@ -14,6 +14,7 @@ import java.util.*;
 
 /** AI selects a proposed action; validated confirmation cards are the only write path. */
 @RestController
+@org.springframework.context.annotation.Profile("!desktop")
 @RequestMapping("/api/assistant")
 public class AssistantActionController {
     private final AiClient ai;

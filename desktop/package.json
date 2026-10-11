@@ -10,7 +10,7 @@
     "prepare": "node scripts/prepare.cjs",
     "test": "node --test test/*.test.cjs",
     "package": "node scripts/prepare.cjs && electron-builder --win --dir",
-    "dist": "node scripts/prepare.cjs && electron-builder --win nsis"
+    "dist": "node scripts/build-beta.cjs"
   },
   "devDependencies": {
     "electron": "44.7.0",
@@ -27,6 +27,11 @@
       "preload.cjs",
       "runtime.cjs",
       "backup.cjs",
+      "logging.cjs",
+      "ai/assets.cjs",
+      "ai/managed-runtime.cjs",
+      "ai/service.cjs",
+      "ai/embedding-lock.json",
       "assets/**"
     ],
     "extraResources": [
@@ -45,6 +50,10 @@
       {
         "from": "resources/runtime",
         "to": "runtime"
+      },
+      {
+        "from": "resources/ai",
+        "to": "ai"
       }
     ],
     "win": {

@@ -1,0 +1,11 @@
+const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),{spawnSync}=require('node:child_process');
+const root=path.resolve(__dirname,'../..'),source=path.join(root,'desktop/native/InferenceHost.cs'),output=path.join(root,'target/ai-native');
+if(process.platform!=='win32'||process.arch!=='x64')throw Error('Build the inference host on Windows x64.');
+const compiler=path.join(process.env.SystemRoot,'Microsoft.NET/Framework64/v4.0.30319/csc.exe');
+fs.mkdirSync(output,{recursive:true});
+const executable=path.join(output,'InferenceHost.exe');
+const result=spawnSync(compiler,['/nologo','/target:exe','/platform:x64','/optimize+','/out:'+executable,source],{stdio:'inherit',windowsHide:true});
+if(result.error)throw result.error;if(result.status!==0)throw Error('Inference host compilation failed.');
+const sha=file=>crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+fs.writeFileSync(path.join(output,'manifest.json'),JSON.stringify({version:1,platform:'win32-x64',bytes:fs.statSync(executable).size,sha256:sha(executable),sourceSha256:sha(source)},null,2)+'\n');
+console.log('Windows inference host built; run native-runtime-smoke.cjs to check forced shutdown.');

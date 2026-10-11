@@ -35,6 +35,7 @@ public class CaptureService {
     @Value("${ai.capture-enabled:true}") private boolean aiEnabled;
     @Value("${tracker.timezone:Asia/Kolkata}") private String defaultTimezone;
     @Autowired(required=false) private com.tracker.rag.service.desktop.DesktopTaskService desktopTasks;
+    @Autowired(required=false) private com.tracker.rag.service.desktop.LocalDataService localData;
 
     public CaptureService(EventLogService events, TaskRepository tasks, HabitRepository habits, CareerApplicationRepository careers) {
         this.events = events; this.tasks = tasks; this.habits = habits; this.careers = careers;
@@ -80,6 +81,23 @@ public class CaptureService {
         if (raw == null) throw new IllegalArgumentException("Draft payload is required");
         Map<String, Object> payload = new LinkedHashMap<>();
         switch (type) {
+            case "EVENT" -> {
+                if (localData == null) throw new IllegalArgumentException("Standalone event previews require local mode");
+                if (raw.keySet().stream().anyMatch(k -> !Set.of("title", "description", "startAt", "endAt", "remindAt").contains(k)))
+                    throw new IllegalArgumentException("Unexpected event proposal fields");
+                payload.put("title", required(raw, "title", 255));
+                payload.put("description", Objects.requireNonNullElse(optional(raw, "description"), ""));
+                if (((String)payload.get("description")).length() > 4000) throw new IllegalArgumentException("Event description is too long");
+                Instant start = Instant.parse(required(raw, "startAt", 50)), end = Instant.parse(required(raw, "endAt", 50));
+                if (!end.isAfter(start)) throw new IllegalArgumentException("Event end must follow its start");
+                payload.put("startAt", start.toString()); payload.put("endAt", end.toString());
+                String reminder = optional(raw, "remindAt");
+                if (reminder != null) {
+                    Instant at = Instant.parse(reminder);
+                    if (!at.isAfter(Instant.now())) throw new IllegalArgumentException("Choose a future reminder");
+                    payload.put("remindAt", at.toString());
+                }
+            }
             case "TASK", "TASK_UPDATE" -> {
                 Task existing = null;
                 if (type.equals("TASK_UPDATE")) {
@@ -172,6 +190,14 @@ public class CaptureService {
             Object before = null;
             ActionType action = ActionType.CREATE;
             switch (card.entityType()) {
+                case "EVENT" -> {
+                    if (localData == null) throw new IllegalArgumentException("Standalone events require local mode");
+                    var input = mapper.valueToTree(p);
+                    ((com.fasterxml.jackson.databind.node.ObjectNode)input).put("domain", card.targetDomain().name()).put("allDay", false);
+                    var saved = localData.saveEvent(null, input); // Revalidates reminder time, writes its own local audit.
+                    if (!transaction) { confirmed.put(token, true); previews.remove(token); }
+                    return UUID.fromString(saved.get("id").toString());
+                }
                 case "TASK_UPDATE" -> {
                     Task task = tasks.lockForEdit(UUID.fromString((String)p.get("taskId")), card.targetDomain()).orElseThrow(() -> new IllegalArgumentException("Task no longer exists in this area"));
                     if (!Objects.toString(task.getUpdatedAt(), "").equals(p.get("expectedUpdatedAt"))) throw new IllegalArgumentException("This task changed since the preview. Create a new draft.");

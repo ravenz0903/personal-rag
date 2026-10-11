@@ -24,7 +24,7 @@ public class SecurityConfig {
         http.cors(cors -> {}).csrf(csrf -> csrf.disable())
                 .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS));
         if (Arrays.asList(environment.getActiveProfiles()).contains("desktop")) {
-            http.addFilterBefore(new DesktopApiGuard(environment.getProperty("tracker.desktop.token", "")),
+            http.addFilterBefore(new DesktopApiGuard(environment.getProperty("tracker.desktop.token", ""),Boolean.parseBoolean(environment.getProperty("ai.enabled","false"))),
                     org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter.class);
         }
         if (!enabled) {

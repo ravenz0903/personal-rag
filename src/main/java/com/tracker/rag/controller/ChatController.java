@@ -18,6 +18,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 @RestController
+@org.springframework.context.annotation.Profile("!desktop")
 @RequestMapping("/api/chat")
 
 public class ChatController {
