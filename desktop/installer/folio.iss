@@ -7,13 +7,19 @@
 #ifndef BetaVersion
   #define BetaVersion "0.3.0-beta.1"
 #endif
+#ifndef AppIdentity
+  #define AppIdentity "com.folio.workspace.beta"
+#endif
+#ifndef AppLabel
+  #define AppLabel "Folio"
+#endif
 [Setup]
-AppId=com.folio.workspace.beta
-AppName=Folio
+AppId={#AppIdentity}
+AppName={#AppLabel}
 AppVersion={#BetaVersion}
 AppPublisher=Folio
-DefaultDirName={localappdata}\Programs\Folio
-DefaultGroupName=Folio
+DefaultDirName={localappdata}\Programs\{#AppLabel}
+DefaultGroupName={#AppLabel}
 PrivilegesRequired=lowest
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -32,15 +38,15 @@ CloseApplications=no
 RestartApplications=no
 Uninstallable=yes
 CreateUninstallRegKey=yes
-UninstallDisplayName=Folio private beta
+UninstallDisplayName={#AppLabel} private beta
 ; Only installed application files are removed. No AppData workspace deletion.
 [Files]
 Source: "{#AppSource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; Flags: unchecked
 [Icons]
-Name: "{userprograms}\Folio\Folio"; Filename: "{app}\Folio.exe"; AppUserModelID: "com.folio.workspace"
-Name: "{userdesktop}\Folio"; Filename: "{app}\Folio.exe"; AppUserModelID: "com.folio.workspace"; Tasks: desktopicon
+Name: "{userprograms}\{#AppLabel}\{#AppLabel}"; Filename: "{app}\Folio.exe"; AppUserModelID: "com.folio.workspace"
+Name: "{userdesktop}\{#AppLabel}"; Filename: "{app}\Folio.exe"; AppUserModelID: "com.folio.workspace"; Tasks: desktopicon
 [Run]
 Filename: "{app}\Folio.exe"; Description: "Open Folio"; Flags: nowait postinstall skipifsilent
 [Code]

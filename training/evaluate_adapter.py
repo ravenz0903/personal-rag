@@ -1,9 +1,11 @@
 """Compare original untouched synthetic benchmark on the same quantized base/adapter."""
 import argparse
+import hashlib
 import json
 import os
 from pathlib import Path
 import subprocess
+from colab.adapter_profiles import identify_profile
 
 
 def main():
@@ -11,12 +13,25 @@ def main():
     parser.add_argument('--adapter', default='target/folio-adapter-pilot')
     parser.add_argument('--suite', choices=['original','fresh','qualification'], default='original')
     parser.add_argument('--adapter-only', action='store_true')
+    parser.add_argument('--base-path', help='Use the pinned local original-model snapshot')
     args = parser.parse_args()
     root = Path(__file__).resolve().parent.parent
     adapter = Path(args.adapter).resolve()
+    adapter_profile=identify_profile(json.loads((adapter/'adapter_config.json').read_text(encoding='utf-8')))
     if not adapter.is_relative_to(root / 'target'):
         raise ValueError('Use an ignored development adapter under target/')
-    report = json.loads((adapter / 'pilot-report.json').read_text(encoding='utf-8'))
+    legacy = (adapter / 'pilot-report.json').exists()
+    training_report = adapter / 'pilot-report.json' if legacy else adapter.parent / 'experiment-report.json'
+    report = json.loads(training_report.read_text(encoding='utf-8'))
+    if not legacy:
+        state = json.loads((adapter.parent / 'training-state.json').read_text())
+        if not state.get('evaluation_complete') or report.get('contract_version') != 2:
+            raise ValueError('The contract-v2 training/evaluation run is incomplete')
+    if report['model'] != 'Qwen/Qwen3-4B' or report['revision'] != '1cfa9a7208912126459214e8b04321603b3df60c':
+        raise ValueError('Evaluation requires the pinned original model')
+    filename={'fresh':'fresh-report.json','original':'benchmark-report.json','qualification':'qualification-report.json'}[args.suite]
+    if (adapter / filename).exists():
+        raise ValueError('Existing evaluation reports must be preserved')
     os.environ['HF_HOME'] = str(root / 'target/ai-training-cache')
     os.environ['HF_HUB_DISABLE_TELEMETRY'] = '1'
     import torch
@@ -31,7 +46,7 @@ def main():
     tokenizer = AutoTokenizer.from_pretrained(adapter, local_files_only=True)
     quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type='nf4',
                               bnb_4bit_use_double_quant=True, bnb_4bit_compute_dtype=torch.bfloat16)
-    base = AutoModelForCausalLM.from_pretrained(report['model'], revision=report['revision'],
+    base = AutoModelForCausalLM.from_pretrained(args.base_path or report['model'], revision=None if args.base_path else report['revision'],
         local_files_only=True, trust_remote_code=False, quantization_config=quant,
         device_map={'': 0}, dtype=torch.bfloat16, attn_implementation='eager')
     base = prepare_model_for_kbit_training(base, use_gradient_checkpointing=False)
@@ -63,11 +78,13 @@ def main():
         input=json.dumps(results), cwd=root, text=True, encoding='utf-8')
     results = json.loads(scored)
     summary = {name: sum(row['passed'] for row in rows) for name, rows in results.items()}
-    filename={'fresh':'fresh-report.json','original':'benchmark-report.json','qualification':'qualification-report.json'}[args.suite]
     (adapter / filename).write_text(json.dumps({
-        'runtime': 'Transformers NF4 (not Ollama GGUF)', 'model': report['model'],
+        'runtime': 'Transformers NF4 (not Ollama GGUF)', 'model': report['model'], 'adapterProfile':adapter_profile,
         'revision': report['revision'], 'passed': summary, 'cases': results,
         'suite':args.suite,'synthetic': True, 'actions_executed': False,
+        'adapterSha256':hashlib.sha256((adapter/'adapter_model.safetensors').read_bytes()).hexdigest(),
+        'trainingReportSha256':hashlib.sha256(training_report.read_bytes()).hexdigest(),
+        'gpu':torch.cuda.get_device_name(0),'precision':'torch.bfloat16',
         'unsafe_cases':{name:[row['id'] for row in rows if row.get('unsafe')] for name,rows in results.items()}}, indent=2) + '\n', encoding='utf-8')
     print(json.dumps(summary), flush=True)
 

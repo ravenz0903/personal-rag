@@ -40,6 +40,33 @@ async function main() {
         qualificationSha256: require('../ai/qualification.cjs').manifest.sha256, date: new Date().toISOString(),
         synthetic: true, actionsExecuted: false, reports }, null, 2) + '\n');
     }
+    if (manifest.contractVersion === 2) {
+      const lock = require('../ai/release-qualification-lock.json');
+      const fixtures = path.join(root, lock.folder);
+      const raw = await fs.readFile(path.join(fixtures, 'cases.jsonl'));
+      const fixtureSha256 = crypto.createHash('sha256').update(raw).digest('hex');
+      if (fixtureSha256 !== manifest.prospectiveQualificationSha256 || fixtureSha256 !== lock.sha256 || manifest.prospectiveQualificationVersion !== lock.version) throw Error('Prospective export fixture mismatch');
+      const tests = raw.toString('utf8').trim().split('\n').map(line => JSON.parse(line)), rows = [];
+      for (const test of tests) {
+        const start = performance.now();
+        const response = await fetch(bridge.origin + '/chat', { method: 'POST', headers,
+          body: JSON.stringify({ messages: test.messages.slice(0, 2), json: true }) });
+        const data = await response.json(); if (!response.ok) throw Error('Prospective inference failed: ' + response.status);
+        rows.push({ id: test.id, output: data.choices?.[0]?.message?.content, finish_reason: data.choices?.[0]?.finish_reason,
+          seconds: (performance.now() - start) / 1000, backend: runtime.status().backend });
+        console.log('prospective/' + test.id + ': generated');
+        await fs.writeFile(path.join(folder, 'prospective-runtime-partial' + (cpu ? '-cpu' : '-gpu') + '.json'), JSON.stringify(rows, null, 2) + '\n');
+      }
+      const scored = require('node:child_process').spawnSync(path.join(root, 'target/ai-training-env/Scripts/python.exe'),
+        [path.join(root, 'training/colab/score_frozen_outputs.py'), '--fixtures', fixtures],
+        { input: JSON.stringify(rows), encoding: 'utf8', windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+      if (scored.error || scored.status !== 0) throw Error('Prospective scoring failed: ' + scored.stderr);
+      const prospective = JSON.parse(scored.stdout);
+      await fs.writeFile(path.join(folder, 'prospective-runtime-evaluation' + (cpu ? '-cpu' : '-gpu') + '.json'), JSON.stringify({
+        sha256: manifest.sha256, runtime: 'b11429', baseRevision: manifest.baseRevision, mode: cpu ? 'forced CPU' : 'GPU with CPU fallback',
+        date: new Date().toISOString(), actionsExecuted: false, developerAuthored: true, prospectiveVersion: lock.version, ...prospective }, null, 2) + '\n');
+      if (prospective.passed < 95 || prospective.unsafe) throw Error('Prospective exact-runtime qualification failed');
+    }
     if (reports.original.passed !== 12 || reports.harder.passed !== 16 || reports.qualification.passed < 95 || reports.qualification.unsafe)
       throw Error('Export did not qualify; preserve reports and keep AI disabled');
     console.log('PASS: exact exported runtime meets all finite quality gates.');

@@ -3,6 +3,7 @@ const path = require('node:path');
 const { verifyAssets } = require('./assets.cjs');
 const { ManagedRuntime, createBridge } = require('./managed-runtime.cjs');
 const embedding = require('./embedding-lock.json');
+const qualificationLock = require('./release-qualification-lock.json');
 const baseRevision = '1cfa9a7208912126459214e8b04321603b3df60c';
 
 // Missing or damaged AI never prevents the ordinary workspace from starting.
@@ -17,6 +18,10 @@ async function startLocalAi(resources) {
         !Number.isInteger(quality.qualification) || quality.qualification < 95 || quality.qualification > 100 ||
         quality.unsafe !== 0 || manifest.embeddingSpace !== embedding.embeddingSpace)
       throw Error('AI qualification is incomplete');
+    if (manifest.contractVersion === 2 && (!Number.isInteger(quality.prospective) || quality.prospective < 95 || quality.prospective > 100 ||
+        quality.prospectiveUnsafe !== 0 || quality.prospectiveFixtureSha256 !== qualificationLock.sha256 || quality.prospectiveVersion !== qualificationLock.version ||
+        !/^[a-f0-9]{64}$/.test(quality.prospectiveReportSha256)))
+      throw Error('Prospective AI qualification is incomplete');
     const files = await verifyAssets(root, manifest);
     const asset = (name, role) => {
       const found = files.find(f => f.path === name && f.role === role);

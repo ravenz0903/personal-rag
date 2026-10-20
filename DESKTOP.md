@@ -4,7 +4,11 @@ Folio now targets a local Windows desktop app. Cloud deployment and AI selection
 
 ## Build and run
 
-Install Node.js and JDK 21 or newer on the build computer. Install frontend dependencies with `npm ci` in `frontend`. Run `npm ci` in `desktop`, then `npm run prepare` and `npm start` there. `npm run package` builds an unpacked Windows application; `npm run dist` builds the installer under `desktop/release`. End users use the bundled Java runtime and do not install Java or Node.
+Install Node.js 22.12+ and JDK 21 or newer on the Windows build computer. Install frontend dependencies with `npm ci` in `frontend`. Run `npm ci` in `desktop`, then `npm run prepare` and `npm start` there. Preparation builds/stages the backend and frontend and downloads/verifies the pinned Java runtime; it skips backend tests. `npm run package` builds an unpacked Windows application under `desktop/release/win-unpacked`. End users use the bundled runtime and do not install Java or Node.
+
+The AI-enabled private-beta installer workflow is `node desktop/scripts/build-beta.cjs target/qualified-export` from the repository root, with the example directory replaced by a genuinely qualified export. It requires verified model/runtime assets, license material, and the project-local Inno Setup compiler; output goes to `target/private-beta`. There is no qualified chat export yet. Bare `npm run dist` has no export argument and is expected to reject the build. Historical core-only QA installers are separate from this gated release workflow.
+
+To avoid sharing the normal workspace during development, launch with an explicit directory, for example `npm start -- --user-data-dir="C:\Temp\folio-dev-workspace"` from `desktop`. Ordinary development and packaged launches use the same default workspace. Verify the actual path through Settings before entering test records.
 
 Run `npm test` in `desktop` for launcher checks and `node scripts/smoke.cjs` after preparing resources to verify the bundled Java runtime, private API, frontend serving, offline uploads, ZIP backups, and graceful shutdown. Smoke checks use a disposable temporary workspace, never your own database. Run `mvnw.cmd test` at the repository root for the backend suite and `npm test` in `frontend` for calendar/timezone checks. Run `desktop/node_modules/.bin/electron.cmd desktop/scripts/ui-smoke.cjs` from the root after preparing resources for the sandboxed UI and backup round-trip checks. `desktop/scripts/lifecycle-smoke.cjs` exercises the real launcher, tray behavior, and a scheduled Windows notification in a disposable workspace.
 
@@ -30,7 +34,7 @@ Before each pending database migration, `data/migration-backups/` receives a con
 
 ## Security and current scope
 
-The backend listens only on loopback, uses a random per-launch secret, and blocks AI endpoints in desktop mode. The renderer has no Node access, exposes only narrow desktop actions, and cannot navigate to external sites. This protects against browser-origin requests; it does not protect data from malware or another person logged into the same Windows account. The local database and backups are not encrypted by Folio.
+The backend listens only on loopback and uses a random per-launch secret. Ordinary desktop builds block AI endpoints; optional managed AI activates only behind verified-asset and qualification gates. The renderer has no Node access, exposes only narrow desktop actions, and cannot navigate to external sites. This protects against browser-origin requests; it does not protect data from malware or another person logged into the same Windows account. The local database and backups are not encrypted by Folio.
 
 PDF and Markdown uploads store originals without embeddings. Existing indexed originals remain intact; replacing an indexed original with changed contents requires a new filename while AI is postponed. Personal remains outside the combined Academic/Career view.
 

@@ -3,12 +3,13 @@ const fs = require('node:fs');
 const path = require('node:path');
 const os = require('node:os');
 const { startBackend, waitForBackend } = require('../runtime.cjs');
+const resources = process.argv[2] ? path.resolve(process.argv[2]) : path.resolve(__dirname, '../resources');
 
 (async () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'folio-smoke-'));
   let backend;
   try {
-    backend = await startBackend(path.resolve(__dirname, '../resources'), directory);
+    backend = await startBackend(resources, directory);
     await waitForBackend(backend);
     const request = (route, options = {}) => fetch(backend.origin + route, { ...options, headers: { 'X-Folio-Desktop-Token': backend.token, 'Content-Type': 'application/json' } });
     assert.equal((await fetch(backend.origin + '/api/tracker/tasks?domain=ACADEMICS')).status, 401);

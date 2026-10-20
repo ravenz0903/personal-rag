@@ -14,7 +14,23 @@ public class LocalReminderService {
     @Transactional public List<Map<String,Object>> claim(){
         if(!Boolean.TRUE.equals(data.preferences().get("remindersEnabled")))return List.of();
         Instant now=Instant.now();
-        var candidates=data.rows("SELECT id,'task' AS kind,remind_at FROM tasks WHERE archived=FALSE AND status IN ('PENDING','IN_PROGRESS') AND remind_at BETWEEN ? AND ? UNION ALL SELECT id,'event',remind_at FROM calendar_events WHERE archived=FALSE AND remind_at BETWEEN ? AND ? ORDER BY remind_at LIMIT 20",now.minusSeconds(86400),now,now.minusSeconds(86400),now);
+        // Filter unclaimable attempts before limiting the batch, otherwise the
+        // earliest delivered/leased reminders can indefinitely starve later ones.
+        var candidates=data.rows("""
+            SELECT due.id,due.kind,due.remind_at FROM (
+                SELECT id,'task' AS kind,remind_at FROM tasks
+                WHERE archived=FALSE AND status IN ('PENDING','IN_PROGRESS') AND remind_at BETWEEN ? AND ?
+                UNION ALL
+                SELECT id,'event' AS kind,remind_at FROM calendar_events
+                WHERE archived=FALSE AND remind_at BETWEEN ? AND ?
+            ) due
+            WHERE NOT EXISTS (
+                SELECT 1 FROM desktop_reminder_attempts attempt
+                WHERE attempt.record_id=due.id AND attempt.kind=due.kind AND attempt.remind_at=due.remind_at
+                AND (attempt.delivered_at IS NOT NULL OR attempt.attempts>=3 OR attempt.lease_until>=?)
+            )
+            ORDER BY due.remind_at,due.id,due.kind LIMIT 20
+            """,now.minusSeconds(86400),now,now.minusSeconds(86400),now,now);
         List<Map<String,Object>> result=new ArrayList<>();
         for(var row:candidates){
             Object id=row.get("id"),kind=row.get("kind");Instant at=Instant.parse((String)row.get("remindAt"));

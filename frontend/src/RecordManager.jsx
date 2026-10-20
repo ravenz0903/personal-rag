@@ -1,11 +1,12 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from './api';
 import { put } from './localTime';
 import LocalDialog from './LocalDialog';
-export default function RecordManager({ kind, onRefresh, selectedId, onSelectionHandled }) {
+export default function RecordManager({ kind, onRefresh, selectedId, onSelectionHandled, refreshKey }) {
   const [records, setRecords] = useState([]), [edit, setEdit] = useState(null), [archived, setArchived] = useState(false), [error, setError] = useState(''), [busy, setBusy] = useState(false);
-  const load = () => api(`/api/local/records/${kind}`).then(setRecords).catch(e => setError(e.message));
-  useEffect(() => { load(); }, [kind]);
+  const loadVersion = useRef(0);
+  const load = () => { const version = ++loadVersion.current; return api(`/api/local/records/${kind}`).then(value => { if (version === loadVersion.current) setRecords(value); }).catch(e => { if (version === loadVersion.current) setError(e.message); }); };
+  useEffect(() => { load(); return () => { loadVersion.current++; }; }, [kind, refreshKey]);
   useEffect(() => { if (!selectedId) return; const record = records.find(r => r.id === selectedId); if (record) { setError(''); setEdit(record); onSelectionHandled?.(); } }, [selectedId, records, onSelectionHandled]);
   async function save(event) { event.preventDefault(); const values = Object.fromEntries(new FormData(event.currentTarget)); setBusy(true); setError(''); try { await put(api, `/api/local/records/${kind}/${edit.id}`, { ...edit, ...values, archived: values.archived === 'on' }); setEdit(null); await load(); await onRefresh(); } catch (e) { setError(e.message); } finally { setBusy(false); } }
   const fields = kind === 'course' ? [['code', 'Course code'], ['name', 'Name'], ['term', 'Term'], ['targetGrade', 'Target grade (%)']] : kind === 'habit' ? [['name', 'Habit'], ['timezone', 'Timezone']] : [['company', 'Company'], ['position', 'Role']];

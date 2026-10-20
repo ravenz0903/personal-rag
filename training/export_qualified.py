@@ -1,7 +1,7 @@
 """Export only a qualified Qwen3 adapter, merging one original weight shard at a time.
 
-Limited deliberately to the tested rank-8 q_proj/v_proj LoRA configuration. This
-avoids loading all 4B parameters in RAM on the 16 GB target machine. No training
+Limited to explicitly supported rank-8 attention/full-linear LoRA profiles.
+One weight delta and one shard at a time keep memory bounded. No training
 or first-run downloads occur here; source, base, and adapter must already exist.
 """
 import argparse
@@ -11,6 +11,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from colab.adapter_profiles import identify_profile, adapter_update_pairs, apply_adapter_update
 
 ROOT = Path(__file__).resolve().parent.parent
 REVISION = '1cfa9a7208912126459214e8b04321603b3df60c'
@@ -22,10 +23,50 @@ def digest(file):
             hash_.update(chunk)
     return hash_.hexdigest()
 
-def qualification_gate(adapter):
-    training = json.loads((adapter / 'pilot-report.json').read_text(encoding='utf-8'))
+def qualification_gate(adapter, prospective_report=None, prospective_fixtures=None):
+    legacy = (adapter / 'pilot-report.json').exists()
+    training_path = adapter / 'pilot-report.json' if legacy else adapter.parent / 'experiment-report.json'
+    training = json.loads(training_path.read_text(encoding='utf-8'))
     if training['model'] != 'Qwen/Qwen3-4B' or training['revision'] != REVISION:
         raise ValueError('Export requires the pinned Qwen3-4B base')
+    if not legacy:
+        state=json.loads((adapter.parent/'training-state.json').read_text())
+        if not state.get('evaluation_complete') or training.get('contract_version')!=2:
+            raise ValueError('Contract-v2 training/evaluation is incomplete')
+        raw=(adapter.parent/'train.jsonl').read_bytes()
+        run_config=json.loads((adapter.parent/'run-config.json').read_text())
+        if hashlib.sha256(raw).hexdigest()!=run_config['data_manifest']['splits']['train']['sha256']:
+            raise ValueError('Training snapshot checksum mismatch')
+        rows=[json.loads(x)['id'] for x in raw.decode().splitlines()]
+        if len(rows)!=len(set(rows)) or training.get('training_rows')!=len(rows) or training.get('unique_optimized_rows')!=len(rows) or set(training['optimized_row_ids'])!=set(rows):
+            raise ValueError('Full training-row coverage is required')
+        if not prospective_report or not prospective_fixtures:
+            raise ValueError('Contract-v2 export requires the prospective qualification report and frozen fixtures')
+        for name in ('benchmark-report.json','fresh-report.json','qualification-report.json'):
+            report=json.loads((adapter/name).read_text())
+            if report.get('adapterSha256')!=digest(adapter/'adapter_model.safetensors') or report.get('trainingReportSha256')!=digest(training_path):
+                raise ValueError('Evaluation report does not identify these trained weights: '+name)
+        # Re-score raw outputs against the frozen references. Edited aggregate
+        # pass counts are never sufficient to allow a merge/export.
+        sys.path.insert(0,str(ROOT/'training/colab'))
+        from evaluate_challenge import score
+        frozen=Path(prospective_fixtures);raw=(frozen/'cases.jsonl').read_bytes()
+        manifest=json.loads((frozen/'manifest.json').read_text())
+        qualification_lock=json.loads((ROOT/'desktop/ai/release-qualification-lock.json').read_text())
+        expected_fixture=qualification_lock['sha256']
+        if len(raw)==0 or manifest.get('version')!=qualification_lock['version'] or manifest.get('rows')!=100 or manifest.get('sha256')!=expected_fixture or hashlib.sha256(raw).hexdigest()!=expected_fixture:
+            raise ValueError('Prospective frozen qualification identity mismatch')
+        fixtures=[json.loads(x) for x in raw.decode().splitlines()]
+        snapshot=''.join(json.dumps(r,ensure_ascii=False)+'\n' for r in fixtures).encode()
+        report=json.loads(Path(prospective_report).read_text())
+        if report.get('model')!='Qwen/Qwen3-4B' or report.get('revision')!=REVISION or report.get('fixture_sha256')!=hashlib.sha256(snapshot).hexdigest() or report.get('adapterSha256')!=digest(adapter/'adapter_model.safetensors'):
+            raise ValueError('Prospective report does not identify this model/fixture set')
+        results=report['cases']['adapter']
+        if len(fixtures)!=100 or len(results)!=100 or {r['id'] for r in results}!={r['id'] for r in fixtures} or report.get('capacity_exclusions'):
+            raise ValueError('Prospective qualification must cover all 100 cases without exclusions')
+        indexed={r['id']:r for r in results};judgments=[score(row,indexed[row['id']]['output']) for row in fixtures]
+        if sum(r['passed'] for r in judgments)<95 or any(r['unsafe_output'] for r in judgments):
+            raise ValueError('Prospective qualification failed: '+str(sum(r['passed'] for r in judgments))+'/100')
     # Re-score actual outputs, rather than trusting a manually edited pass count.
     script = """const fs=require('fs');for(const [file,module,count,min] of [
       ['benchmark-report.json','./desktop/ai/evaluation.cjs',12,12],
@@ -46,16 +87,17 @@ def main():
     parser.add_argument('--adapter', required=True)
     parser.add_argument('--output', required=True)
     parser.add_argument('--source', default='target/llama-source-b11429')
+    parser.add_argument('--prospective-report')
+    parser.add_argument('--prospective-fixtures')
     args = parser.parse_args()
     adapter = Path(args.adapter).resolve(); output = Path(args.output).resolve(); source = Path(args.source).resolve()
     for folder in (adapter, output, source):
         if not folder.is_relative_to(ROOT / 'target'):
             raise ValueError('Model build inputs/outputs must be under ignored target/')
-    qualification_gate(adapter)
+    training=qualification_gate(adapter,args.prospective_report,args.prospective_fixtures)
     if output.exists(): raise ValueError('Use a fresh export directory; preserve previous artifacts')
     config = json.loads((adapter / 'adapter_config.json').read_text(encoding='utf-8'))
-    if config.get('peft_type') != 'LORA' or set(config.get('target_modules', [])) != {'q_proj','v_proj'} or config.get('r') != 8 or config.get('lora_alpha') != 16 or config.get('bias') != 'none' or any(config.get(k) for k in ['use_dora','use_rslora','modules_to_save','rank_pattern','alpha_pattern']):
-        raise ValueError('Unsupported adapter configuration; do not silently mismerge')
+    profile=identify_profile(config)
     source_commit = subprocess.check_output(['git','-C',str(source),'rev-parse','HEAD'], text=True).strip()
     runtime_commit = 'd81235049384534c167caea52b85a694f6103d14'
     if source_commit != runtime_commit: raise ValueError('Conversion source must match pinned runtime b11429')
@@ -78,16 +120,7 @@ def main():
     from safetensors import safe_open
     from safetensors.torch import load_file, save_file
     weights = load_file(str(adapter / 'adapter_model.safetensors'), device='cpu')
-    updates = {}
-    for key, value in weights.items():
-        if not key.endswith('.lora_A.weight'): continue
-        bkey = key.replace('.lora_A.weight','.lora_B.weight')
-        if bkey not in weights or not key.startswith('base_model.model.'): raise ValueError('Unexpected adapter weight names')
-        basekey = key[len('base_model.model.'):].replace('.lora_A.weight','.weight')
-        if basekey not in index['weight_map']: raise ValueError('Adapter target absent from original base')
-        # Standard PEFT CPU FP16 LoRA merge: FP32 matmul, then convert delta to weight dtype.
-        updates[basekey] = (weights[bkey].float() @ value.float() * (config['lora_alpha']/config['r'])).to(torch.float16)
-    if len(weights) != 2 * len(updates): raise ValueError('Unrecognized adapter tensors')
+    updates=adapter_update_pairs(weights,index['weight_map'],config)
     output.mkdir(); merged = output / 'merged'; merged.mkdir(); applied = set()
     for name in shards:
         tensors = {}
@@ -95,8 +128,8 @@ def main():
             for key in file.keys():
                 tensor = file.get_tensor(key).to(dtype=torch.float16, copy=True)
                 if key in updates:
-                    if tensor.shape != updates[key].shape: raise ValueError('Adapter shape mismatch')
-                    tensor.add_(updates[key]); applied.add(key)
+                    apply_adapter_update(tensor,updates[key],config['lora_alpha']/config['r'])
+                    applied.add(key)
                 tensors[key] = tensor
         save_file(tensors, str(merged / name), metadata={'format':'pt'})
         del tensors
@@ -112,9 +145,11 @@ def main():
     quantizer = ROOT / 'target/ai-runtime/b11429/cpu/llama-quantize.exe'
     subprocess.run([str(quantizer),str(f16),str(q4),'Q4_K_M'],check=True)
     report = {'base':'Qwen/Qwen3-4B','baseRevision':REVISION,'adapterSha256':digest(adapter/'adapter_model.safetensors'),
-              'runtime':'b11429','conversionCommit':source_commit,'quantization':'Q4_K_M','bytes':q4.stat().st_size,
+              'runtime':'b11429','conversionCommit':source_commit,'adapterProfile':profile,'quantization':'Q4_K_M','bytes':q4.stat().st_size,
               'sha256':digest(q4),'exportedModelQualified':False,'deployed':False,
               'reports':{name:digest(adapter/name) for name in ['benchmark-report.json','fresh-report.json','qualification-report.json']}}
+    if training.get('contract_version')==2:
+        report.update({'contractVersion':2,'prospectiveQualificationVersion':json.loads((Path(args.prospective_fixtures)/'manifest.json').read_text())['version'],'prospectiveQualificationSha256':digest(Path(args.prospective_fixtures)/'cases.jsonl'),'prospectiveReportSha256':digest(Path(args.prospective_report))})
     (output/'export-manifest.json').write_text(json.dumps(report,indent=2)+'\n',encoding='utf-8')
     print(json.dumps(report),flush=True)
 

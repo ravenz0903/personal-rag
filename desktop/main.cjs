@@ -4,12 +4,17 @@ const fs = require('node:fs/promises');
 const { startBackend, waitForBackend } = require('./runtime.cjs');
 const { stageBackup, saveResponse, recoverInterruptedRestore } = require('./backup.cjs');
 const { startLocalAi } = require('./ai/service.cjs');
+const { NoteDrafts } = require('./note-drafts.cjs');
+const { createNotifier } = require('./notifications.cjs');
 
 app.setAppUserModelId('com.folio.workspace');
 app.setName('Folio');
-app.setPath('userData', path.join(app.getPath('appData'), 'Folio'));
+// Honor Electron's explicit data-directory switch for isolated workspaces.
+if (!app.commandLine.hasSwitch('user-data-dir')) app.setPath('userData', path.join(app.getPath('appData'), 'Folio'));
 require('./logging.cjs').installLogger(app.getPath('userData'));
 let window, tray, backend, localAi, quitting = false, restoring = false, polling = false, timer;
+let noteDrafts;
+let notify;
 const notifications = new Set();
 const resources = app.isPackaged ? process.resourcesPath : path.join(__dirname, 'resources');
 const icon = () => nativeImage.createFromPath(path.join(__dirname, 'assets', 'folio.png'));
@@ -18,20 +23,7 @@ async function openBackend(data) {
   try { return await startBackend(resources, data, localAi.environment); }
   catch (error) { await localAi.close(); throw error; }
 }
-function showWindow() { if (window) { window.show(); window.restore(); window.focus(); } }
-function notify(message, onClick) {
-  if (!Notification.isSupported()) throw new Error('Windows notifications are unavailable on this device.');
-  const notification = new Notification({ title: 'Folio', body: message, icon: icon() });
-  notifications.add(notification);
-  notification.once('close', () => notifications.delete(notification));
-  notification.once('click', () => { notifications.delete(notification); showWindow(); onClick?.(); });
-  return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => { notifications.delete(notification); reject(new Error('Windows did not acknowledge the notification. Check notification settings.')); }, 10000);
-    notification.once('show', () => { clearTimeout(timeout); resolve(); });
-    notification.once('failed', (_event, error) => { clearTimeout(timeout); notifications.delete(notification); reject(new Error(error || 'Windows could not display the notification.')); });
-    notification.show();
-  });
-}
+function showWindow() { if (window && !window.isDestroyed()) { if (window.isMinimized()) window.restore(); window.show(); window.focus(); } }
 async function request(url, options = {}) {
   const response = await fetch(backend.origin + url, { ...options,
     headers: { 'X-Folio-Desktop-Token': backend.token, 'Content-Type': 'application/json' }, signal: AbortSignal.timeout(5000) });
@@ -49,7 +41,7 @@ async function pollReminders() {
       const current = await request(`/api/desktop/reminders/eligible?id=${reminder.taskId}&kind=${reminder.kind}&at=${encodeURIComponent(reminder.remindAt)}`);
       if (!current.eligible) continue;
       await notify('You have a scheduled reminder. Open Folio to view it.', () => {
-        if (window && !window.isDestroyed()) window.loadURL(backend.origin + `/?record=${reminder.taskId}&kind=${reminder.kind}`);
+        if (window && !window.isDestroyed()) return window.loadURL(backend.origin + `/?record=${reminder.taskId}&kind=${reminder.kind}`);
       });
       if (!restoring && !quitting) await request('/api/desktop/reminders/delivered', { method: 'POST', body: JSON.stringify(reminder) });
       } catch(error) { await request('/api/desktop/reminders/failed', { method: 'POST', body: JSON.stringify(reminder) }).catch(() => {}); console.error('Reminder delivery:', error.message); }
@@ -62,6 +54,8 @@ function trusted(event) {
       new URL(event.senderFrame.url).origin !== backend.origin) throw new Error('Untrusted desktop request');
 }
 function registerActions() {
+  noteDrafts=new NoteDrafts(app.getPath('userData'));
+  ipcMain.on('folio:note-draft',(event,...args)=>{try{trusted(event);event.returnValue={value:noteDrafts.dispatch(...args)};}catch(error){event.returnValue={error:error.message};}});
   const handle = (channel, callback) => ipcMain.handle(channel, (event, ...args) => { trusted(event); return callback(...args); });
   handle('folio:settings', () => ({ runAtLogin: app.getLoginItemSettings().openAtLogin, notificationsSupported: Notification.isSupported(), dataPath: app.getPath('userData') }));
   handle('folio:run-at-login', enabled => {
@@ -93,23 +87,25 @@ function registerActions() {
     const verified = p => { if (!path.resolve(p).startsWith(path.resolve(root) + path.sep)) throw new Error('Invalid restore directory.'); return p; };
     const prior = verified(path.join(root, 'data-before-restore-' + Date.now())), current = verified(path.join(root, 'data'));
     const journal = verified(path.join(root, 'restore-journal.json'));
-    let swapped = false;
+    let swapped = false, draftArchive = null;
     try {
       const answer = await dialog.showMessageBox(window, { type: 'question', buttons: ['Cancel', 'Restore this backup'], defaultId: 0, cancelId: 0, title: 'Restore verified backup?', message: `Verified ${staged.files} files. Replace this workspace with the selected backup?`, detail: 'Folio will save a fresh backup and keep the previous data folder. The app restarts its workspace after restoration.' });
       if (answer.response !== 1) return { canceled: true };
-      restoring = true; for (const notification of notifications) notification.close(); notifications.clear();
+      restoring = true; notify.clear();
       const deadline=Date.now()+15000;while(polling&&Date.now()<deadline)await new Promise(resolve=>setTimeout(resolve,100));if(polling)throw new Error('A reminder is still finishing. Retry restoration shortly.');
       const recovery = verified(path.join(root, 'restore-backups')); await fs.mkdir(recovery, { recursive: true });
       await saveResponse(await fetch(backend.origin + '/api/desktop/backup', { headers: { 'X-Folio-Desktop-Token': backend.token }, signal: AbortSignal.timeout(120000) }), path.join(recovery, `before-restore-${Date.now()}.zip`));
       await fs.writeFile(journal,JSON.stringify({prior:path.basename(prior)}),{flag:'wx'});
       await stopBackend(); await fs.rename(current, prior); swapped = true; await fs.rename(verified(staged.data), current);
       backend = await openBackend(root); watchBackend(); await waitForBackend(backend);
+      draftArchive=noteDrafts.archiveForRestore();
       await window.webContents.executeJavaScript("Object.keys(localStorage).filter(k=>k.startsWith('folio-note-draft:')).forEach(k=>localStorage.removeItem(k))");
       await fs.rm(journal);await window.loadURL(backend.origin); return { restored: true };
     } catch (error) {
       if (swapped) {
         await stopBackend().catch(() => {});
         if (await fs.stat(current).catch(() => null)) await fs.rename(current, verified(path.join(root, 'data-failed-restore-' + Date.now())));
+        if (draftArchive) noteDrafts.restoreArchive(draftArchive);
         await fs.rename(prior, current); backend = await openBackend(root); watchBackend(); await waitForBackend(backend); await window.loadURL(backend.origin);
       } else if (backend.child.exitCode !== null) {
         backend = await openBackend(root); watchBackend(); await waitForBackend(backend); await window.loadURL(backend.origin);
@@ -133,6 +129,7 @@ async function stopBackend() {
   if (child.exitCode === null && child.signalCode === null) throw new Error('The workspace could not be stopped safely.');
 }
 async function launch() {
+  notify = createNotifier({ Notification, notifications, showWindow, icon, iconPath: path.join(__dirname, 'assets', 'folio.png'), report: (...args) => console.log(...args) });
   const data = app.getPath('userData');
   await fs.mkdir(data, { recursive: true });
   await recoverInterruptedRestore(data);

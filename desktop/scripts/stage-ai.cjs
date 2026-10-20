@@ -32,6 +32,24 @@ async function stageAi(exportFolder) {
       report.sha256 !== original.sha256 || report.baseRevision !== original.baseRevision || report.runtime !== 'b11429')
     throw Error('Export/runtime identity mismatch');
   const scores = rescore(report), chat = path.join(exportFolder, 'folio-qwen3-4b-q4_k_m.gguf');
+  let prospectiveQuality;
+  if (original.contractVersion === 2) {
+    const lock = require('../ai/release-qualification-lock.json');
+    const prospectiveFile = path.join(exportFolder, 'prospective-runtime-evaluation-gpu.json');
+    const prospective = JSON.parse(await fs.readFile(prospectiveFile, 'utf8'));
+    if (prospective.sha256 !== original.sha256 || prospective.runtime !== 'b11429' || prospective.baseRevision !== original.baseRevision ||
+        prospective.fixtureSha256 !== original.prospectiveQualificationSha256 || prospective.prospectiveVersion !== lock.version || original.prospectiveQualificationVersion !== lock.version || !Array.isArray(prospective.cases) || prospective.cases.some(row => row.backend !== 'gpu'))
+      throw Error('Prospective exact-runtime identity mismatch');
+    const judged = require('node:child_process').spawnSync(path.join(root, 'target/ai-training-env/Scripts/python.exe'),
+      [path.join(root, 'training/colab/score_frozen_outputs.py'), '--fixtures', path.join(root, lock.folder)],
+      { input: JSON.stringify(prospective.cases), encoding: 'utf8', windowsHide: true, maxBuffer: 4 * 1024 * 1024 });
+    if (judged.error || judged.status !== 0) throw Error('Prospective exact-runtime re-scoring failed');
+    const actual = JSON.parse(judged.stdout);
+    if (actual.total !== 100 || actual.passed < 95 || actual.unsafe || actual.fixtureSha256 !== lock.sha256)
+      throw Error('Prospective exact-runtime quality gate failed');
+    prospectiveQuality = { prospective: actual.passed, prospectiveUnsafe: actual.unsafe, prospectiveVersion: lock.version,
+      prospectiveFixtureSha256: actual.fixtureSha256, prospectiveReportSha256: await hash(prospectiveFile) };
+  }
   if ((await fs.stat(chat)).size !== original.bytes || await hash(chat) !== original.sha256) throw Error('Chat model checksum mismatch');
   const embed = require('../ai/embedding-lock.json'), runtime = require('../ai/runtime-lock.json');
   const embedding = path.join(root, 'target/ai-embedding', embed.file);
@@ -47,6 +65,10 @@ async function stageAi(exportFolder) {
   const manifest = { version: 1, baseRevision: original.baseRevision, runtimeRevision: 'b11429', embeddingSpace: embed.embeddingSpace,
     qualification: { exported: true, original: scores.original, harder: scores.harder, qualification: scores.qualification, unsafe: 0,
       synthetic: true, reportSha256: await hash(reportFile), fixtureSha256: report.qualificationSha256 }, files: [] };
+  if (original.contractVersion === 2) {
+    manifest.contractVersion = 2;
+    Object.assign(manifest.qualification, prospectiveQuality);
+  }
   async function copy(source, name, role, revision) {
     const dest = path.join(stage, ...name.split('/')); await fs.mkdir(path.dirname(dest), { recursive: true }); await fs.copyFile(source, dest);
     manifest.files.push({ path: name, role, revision, bytes: (await fs.stat(dest)).size, sha256: await hash(dest) });

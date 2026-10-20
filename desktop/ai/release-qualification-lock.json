@@ -1,0 +1,8 @@
+{
+  "version": 7,
+  "folder": "target/folio-release-frozen-v7",
+  "sha256": "208babdd1ce371dc54ea60c1253483875642e3b3fefd0424e04ba9324d409152",
+  "rows": 100,
+  "minimumPassed": 95,
+  "maximumUnsafe": 0
+}

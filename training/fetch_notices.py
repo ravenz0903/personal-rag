@@ -13,7 +13,11 @@ def main():
         'Qwen3-4B-LICENSE.txt': f'https://huggingface.co/Qwen/Qwen3-4B/resolve/{BASE}/LICENSE',
         'Qwen3-4B-MODEL-CARD.md': f'https://huggingface.co/Qwen/Qwen3-4B/resolve/{BASE}/README.md',
         'llama.cpp-LICENSE.txt': f'https://raw.githubusercontent.com/ggml-org/llama.cpp/{CPP}/LICENSE',
-        'nomic-embedding-MODEL-CARD.md': 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/README.md'
+        'nomic-embedding-MODEL-CARD.md': 'https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/0188c9bf409793f810680a5a431e7b899c46104c/README.md',
+        'SciTLDR-LICENSE.txt': 'https://raw.githubusercontent.com/allenai/scitldr/5ccad9c00a60ad75c9e04abf7f27d0f53f983b20/LICENSE',
+        'MASSIVE-DATASET-CARD.md': 'https://huggingface.co/datasets/AmazonScience/massive/resolve/ff6bd8e4b27c3543e4f8fe2108f32bb95a6f8740/README.md',
+        'MASSIVE-CC-BY-4.0.html': 'https://raw.githubusercontent.com/creativecommons/creativecommons.org/main/docroot/legalcode/by_4.0.html',
+        'Grounded-RAG-DATASET-CARD.md': 'https://huggingface.co/datasets/Sashvat/Grounded-RAG/resolve/749802dc374c0ee8e94dc99d2829828d9770fe29/README.md'
     }
     # The pinned GGUF card declares Apache-2.0 but its repository has no LICENSE file.
     sources['nomic-embedding-Apache-2.0.txt'] = 'https://www.apache.org/licenses/LICENSE-2.0.txt'
@@ -30,4 +34,24 @@ def main():
         'llama.cpp was developed by the ggml-org contributors under the MIT license.\n'
         'Publisher license texts and model cards are included in this directory.\n'
         'Fine-tuning scores are finite synthetic test results, not an accuracy guarantee.\n',encoding='utf-8')
+    (folder/'FOLIO-TRAINING-DATA-NOTICE.txt').write_text(
+        'Folio training-data attribution\n\n'
+        'MASSIVE 1.1, Amazon Science / Alexa AI, CC BY 4.0.\n'
+        'Source: https://github.com/alexa/massive\n'
+        'Pinned card: https://huggingface.co/datasets/AmazonScience/massive/tree/ff6bd8e4b27c3543e4f8fe2108f32bb95a6f8740\n'
+        'License: https://creativecommons.org/licenses/by/4.0/\n'
+        'Changes: 40 English training requests were manually relabeled to Folio actions; '
+        'six further variants explicitly add missing local-event details. '
+        'Original calendar_set intent labels were not used as Folio event labels.\n\n'
+        'SciTLDR, Allen Institute for AI and the SciTLDR authors, Apache 2.0.\n'
+        'Source: https://github.com/allenai/scitldr/tree/5ccad9c00a60ad75c9e04abf7f27d0f53f983b20\n'
+        'Changes: selected training abstracts were wrapped as Folio evidence passages; '
+        'summary, question-answer and abstention labels were reviewed and adapted.\n\n'
+        'Grounded-RAG, Sashvat (dataset publisher), Apache 2.0 as declared by the pinned card.\n'
+        'Source: https://huggingface.co/datasets/Sashvat/Grounded-RAG/tree/749802dc374c0ee8e94dc99d2829828d9770fe29\n'
+        'Changes: selected source passages were wrapped as Folio evidence; '
+        'labels and citations were independently reviewed and rewritten.\n\n'
+        'Dataset cards and license texts are bundled. These credits do not imply endorsement. '
+        'Private workspace records were not used for training. '
+        'Evaluation-only resources were not optimized.\n',encoding='utf-8')
 if __name__ == '__main__': main()

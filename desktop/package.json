@@ -28,10 +28,13 @@
       "runtime.cjs",
       "backup.cjs",
       "logging.cjs",
+      "note-drafts.cjs",
+      "notifications.cjs",
       "ai/assets.cjs",
       "ai/managed-runtime.cjs",
       "ai/service.cjs",
       "ai/embedding-lock.json",
+      "ai/release-qualification-lock.json",
       "assets/**"
     ],
     "extraResources": [
